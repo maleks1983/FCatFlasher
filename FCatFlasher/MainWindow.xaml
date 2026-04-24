@@ -1,0 +1,30 @@
+﻿<Window x:Class="FCatFlasher.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:FCatFlasher"
+        mc:Ignorable="d"
+        Title="MainWindow" Height="450" Width="800">
+    <Grid Margin="10">
+        <StackPanel>
+            <Button Content="Підключитись"
+                Command="{Binding ConnectCommand}"
+                Margin="0,0,0,10"/>
+            <Button Content="Прошити"
+                Command="{Binding FlashCommand}"
+                Height="40"
+                Margin="0,0,0,10"/>
+
+            <TextBlock Text="{Binding Status}"
+                   FontWeight="Bold"
+                   Margin="0,0,0,10"/>
+
+            <TextBox Text="{Binding Log}"
+                 AcceptsReturn="True"
+                 VerticalScrollBarVisibility="Auto"
+                 Height="250"/>
+            
+        </StackPanel>
+    </Grid>
+</Window>
