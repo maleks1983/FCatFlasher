@@ -1,41 +1,108 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.IO.Ports;
 using System.Text;
-using System.IO.Ports;
 
 namespace FCatFlasher.Services
 {
     internal class SerialService
     {
-
         private SerialPort? _port;
+        private readonly StringBuilder _buffer = new();
 
+        public bool IsOpen => _port?.IsOpen == true;
         public event Action<string>? DataReceived;
 
-        public void Open(string portName, int baudRate = 115200)
+        public void Open(string portName, int baud = 115200)
         {
-            _port = new SerialPort(portName, baudRate);
+            Close();
 
-            _port.DataReceived += (s, e) =>
+            _port = new SerialPort(portName, baud)
             {
-                try
-                {
-                    string data = _port.ReadExisting();
-                    DataReceived?.Invoke(data);
-                }
-                catch
-                {
-                    // щоб не падало
-                }
+                NewLine = "\r\n",           // краще для сумісності
+                Encoding = Encoding.ASCII,
+                ReadTimeout = 1000,
+                WriteTimeout = 1000,
+                DtrEnable = true,
+                RtsEnable = true
             };
 
             _port.Open();
+            _port.DiscardInBuffer();
+            _port.DiscardOutBuffer();
+
+            _port.DataReceived += OnDataReceivedRaw;
+        }
+
+        private void OnDataReceivedRaw(object sender, SerialDataReceivedEventArgs e)
+        {
+            try
+            {
+                string data = _port!.ReadExisting();
+                _buffer.Append(data);
+
+                while (true)
+                {
+                    int index = IndexOfNewLine(_buffer);
+                    if (index == -1)
+                        break;
+
+                    string line = _buffer.ToString(0, index).Trim();
+                    _buffer.Remove(0, index + 1);
+
+                    if (!string.IsNullOrWhiteSpace(line))
+                    {
+                        DataReceived?.Invoke(line);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Serial error: " + ex.Message);
+            }
+        }
+
+        private static int IndexOfNewLine(StringBuilder buffer)
+        {
+            for (int i = 0; i < buffer.Length; i++)
+            {
+                if (buffer[i] == '\n')
+                    return i;
+            }
+
+            return -1;
+        }
+
+        public void Send(string command)
+        {
+            if (_port?.IsOpen == true)
+            {
+                _port.WriteLine(command);   // автоматично додає NewLine
+            }
         }
 
         public void Close()
         {
-            if (_port != null && _port.IsOpen)
+            if (_port?.IsOpen == true)
+            {
+                _port.DataReceived -= OnDataReceivedRaw;
                 _port.Close();
+                _port.Dispose();
+                _port = null;
+            }
+            _buffer.Clear();
+        }
+        public void ClearBuffers()
+        {
+            if (_port == null || !_port.IsOpen)
+                return;
+
+            try
+            {
+                _port.DiscardInBuffer();
+                _port.DiscardOutBuffer();
+            }
+            catch
+            {
+            }
         }
     }
 }

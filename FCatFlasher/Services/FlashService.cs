@@ -1,60 +1,190 @@
-﻿using System;
-using System.IO;
-using System.Threading;
-using System.Threading.Tasks;
+﻿using System.Diagnostics;
+using System.Text;
 
 namespace FCatFlasher.Services
 {
     internal class FlashService
     {
-        private readonly CliService _cli = new();
+        private const string CliPath =
+            "E:\\InicaalDG\\STM32CubeProgrammer\\bin\\STM32_Programmer_CLI.exe";
 
-        public async Task<string> Flash(string firmwarePath, string port = "SWD")
+        private const string G0TestFirmwarePath =
+            @"D:\test.hex";
+
+        private const string C0TestFirmwarePath =
+            @"D:\c011_factory_test_02_03_2026.hex";
+
+        public async Task<string> GetDeviceType()
         {
-            if (string.IsNullOrWhiteSpace(firmwarePath))
-                throw new ArgumentException("Firmware path is empty");
+            string result = await RunCli(
+                "-c port=SWD mode=UR",
+                5000
+            );
 
-            if (!File.Exists(firmwarePath))
-                throw new FileNotFoundException("Firmware file not found", firmwarePath);
+            if (result.Contains("STM32G03") ||
+                result.Contains("STM32G04"))
+                return "G0";
 
-            // 🔥 шукаємо exe поруч з програмою
-            string exe = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "STM32_Programmer_CLI.exe");
+            if (result.Contains("STM32C0"))
+                return "C0";
 
-            if (!File.Exists(exe))
-                throw new FileNotFoundException("STM32 Programmer CLI not found", exe);
+            return "UNKNOWN";
+        }
 
-            string args = $"-c port={port} -e all -w \"{firmwarePath}\" -v";
-
-            // 🔥 таймаут (30 сек)
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-
-            var result = await _cli.Run(exe, args);
-
-            // 🔥 більш точна перевірка
-            if (!IsSuccess(result))
+        public async Task<bool> CheckConnection(int timeoutMs = 3000)
+        {
+            try
             {
-                throw new Exception("Flashing failed:\n" + result);
+                string result = await RunCli(
+                    "-c port=SWD mode=UR",
+                    timeoutMs
+                );
+
+                return !result.Contains("ERROR") &&
+                       !result.Contains("timeout") &&
+                       result.Contains("Device ID");
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        public async Task<string> FlashAutoTestFirmware()
+        {
+            var output = new StringBuilder();
+
+            output.AppendLine("=== UNLOCK RDP 0xAA ===");
+
+            output.AppendLine(
+                await RunCli(
+                    "-c port=SWD -ob rdp=0xAA",
+                    30000
+                )
+            );
+
+            string device = await GetDeviceType();
+
+            output.AppendLine($"MCU: {device}");
+
+            string firmwarePath;
+
+            if (device == "G0")
+                firmwarePath = G0TestFirmwarePath;
+            else if (device == "C0")
+                firmwarePath = C0TestFirmwarePath;
+            else
+            {
+                output.AppendLine("ERROR: Unknown MCU");
+                return output.ToString();
             }
 
-            return result;
+            output.AppendLine($"=== FLASH TEST FIRMWARE: {firmwarePath} ===");
+
+            output.AppendLine(
+                await RunCli(
+                    $"-c port=SWD -w \"{firmwarePath}\" -v -rst",
+                    30000
+                )
+            );
+
+            return output.ToString();
         }
 
-        private bool IsSuccess(string output)
+        public async Task<string> FlashProductionFirmware(string firmwarePath)
         {
-            var text = output.ToLower();
+            var output = new StringBuilder();
 
-            // ❌ якщо є явні помилки
-            if (text.Contains("error") || text.Contains("fail"))
-                return false;
+            output.AppendLine($"=== FLASH PRODUCTION FIRMWARE: {firmwarePath} ===");
 
-            // ✅ шукаємо успішний патерн STM32
-            if (text.Contains("download verified successfully") ||
-                text.Contains("verification...ok") ||
-                text.Contains("file download complete"))
+            output.AppendLine(
+                await RunCli(
+                    $"-c port=SWD -w \"{firmwarePath}\" -v",
+                    30000
+                )
+            );
+
+            output.AppendLine("=== SET RDP 0xBB ===");
+
+            output.AppendLine(
+                await RunCli(
+                    "-c port=SWD -ob rdp=0xBB -rst",
+                    30000
+                )
+            );
+
+            return output.ToString();
+        }
+
+        private async Task<string> RunCli(string arguments, int timeoutMs)
+        {
+            var output = new StringBuilder();
+
+            var psi = new ProcessStartInfo
+            {
+                FileName = CliPath,
+                Arguments = arguments,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using var process = new Process();
+            process.StartInfo = psi;
+
+            process.OutputDataReceived += (_, e) =>
+            {
+                if (e.Data != null)
+                    output.AppendLine(e.Data);
+            };
+
+            process.ErrorDataReceived += (_, e) =>
+            {
+                if (e.Data != null)
+                    output.AppendLine(e.Data);
+            };
+
+            process.Start();
+
+            process.BeginOutputReadLine();
+            process.BeginErrorReadLine();
+
+            bool finished = await WaitProcess(process, timeoutMs);
+
+            if (!finished)
+            {
+                output.AppendLine("ERROR: STM32_Programmer_CLI timeout");
+                return output.ToString();
+            }
+
+            if (process.ExitCode != 0)
+                output.AppendLine($"ERROR: ExitCode = {process.ExitCode}");
+
+            return output.ToString();
+        }
+
+        private static async Task<bool> WaitProcess(Process process, int timeoutMs)
+        {
+            var waitTask = process.WaitForExitAsync();
+            var delayTask = Task.Delay(timeoutMs);
+
+            var completed = await Task.WhenAny(waitTask, delayTask);
+
+            if (completed == waitTask)
                 return true;
 
-            // якщо нічого не зрозуміли — вважаємо помилкою
+            try
+            {
+                if (!process.HasExited)
+                    process.Kill();
+            }
+            catch
+            {
+            }
+
             return false;
         }
+
     }
 }

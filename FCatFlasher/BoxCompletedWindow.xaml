@@ -1,0 +1,55 @@
+﻿<Window x:Class="FCatFlasher.BoxCompletedWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Коробку заповнено"
+        Width="420"
+        Height="280"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize">
+
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel>
+            <TextBlock Text="Коробку заповнено"
+                       FontSize="20"
+                       FontWeight="Bold"
+                       Margin="0,0,0,20"/>
+
+            <TextBlock Text="{Binding BoxNumber, StringFormat=Коробка №{0}}"
+                       FontWeight="Bold"
+                       Margin="0,0,0,10"/>
+
+            <TextBlock Text="{Binding SerialRangeText, StringFormat=Діапазон: {0}}"
+                       Margin="0,0,0,10"/>
+
+            <TextBlock Text="{Binding Quantity, StringFormat=Кількість: {0}}"
+                       Margin="0,0,0,10"/>
+
+            <TextBlock Text="{Binding FirmwareName, StringFormat=Прошивка: {0}}"
+                       Margin="0,0,0,10"/>
+        </StackPanel>
+
+        <StackPanel Grid.Row="1"
+                    Orientation="Horizontal"
+                    HorizontalAlignment="Right">
+
+            <Button Content="Друкувати"
+                    Width="100"
+                    Margin="0,0,10,0"
+                    Click="Print_Click"/>
+
+            <Button Content="Продовжити"
+                    Width="100"
+                    Margin="0,0,10,0"
+                    Click="Continue_Click"/>
+
+            <Button Content="Завершити"
+                    Width="100"
+                    Click="Finish_Click"/>
+        </StackPanel>
+    </Grid>
+</Window>
