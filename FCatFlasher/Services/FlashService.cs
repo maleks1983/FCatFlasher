@@ -1,18 +1,20 @@
 ﻿using System.Diagnostics;
+using System.IO;
 using System.Text;
 
 namespace FCatFlasher.Services
 {
     internal class FlashService
     {
-        private const string CliPath =
+        private const string DefaultCliPath =
             "E:\\InicaalDG\\STM32CubeProgrammer\\bin\\STM32_Programmer_CLI.exe";
 
-        private const string G0TestFirmwarePath =
-            @"D:\test.hex";
+        private const string DefaultTestFirmwareDirectory = @"D:\";
+        private const string G0TestFirmwareFileName = "test.hex";
+        private const string C0TestFirmwareFileName = "c011_factory_test_02_03_2026.hex";
 
-        private const string C0TestFirmwarePath =
-            @"D:\c011_factory_test_02_03_2026.hex";
+        public string CliPath { get; set; } = DefaultCliPath;
+        public string TestFirmwareDirectory { get; set; } = DefaultTestFirmwareDirectory;
 
         public async Task<string> GetDeviceType()
         {
@@ -70,9 +72,9 @@ namespace FCatFlasher.Services
             string firmwarePath;
 
             if (device == "G0")
-                firmwarePath = G0TestFirmwarePath;
+                firmwarePath = GetTestFirmwarePath(G0TestFirmwareFileName);
             else if (device == "C0")
-                firmwarePath = C0TestFirmwarePath;
+                firmwarePath = GetTestFirmwarePath(C0TestFirmwareFileName);
             else
             {
                 output.AppendLine("ERROR: Unknown MCU");
@@ -80,6 +82,12 @@ namespace FCatFlasher.Services
             }
 
             output.AppendLine($"=== FLASH TEST FIRMWARE: {firmwarePath} ===");
+
+            if (!File.Exists(firmwarePath))
+            {
+                output.AppendLine($"ERROR: Test firmware not found: {firmwarePath}");
+                return output.ToString();
+            }
 
             output.AppendLine(
                 await RunCli(
@@ -89,6 +97,15 @@ namespace FCatFlasher.Services
             );
 
             return output.ToString();
+        }
+
+        private string GetTestFirmwarePath(string fileName)
+        {
+            string directory = string.IsNullOrWhiteSpace(TestFirmwareDirectory)
+                ? DefaultTestFirmwareDirectory
+                : TestFirmwareDirectory;
+
+            return Path.Combine(directory, fileName);
         }
 
         public async Task<string> FlashProductionFirmware(string firmwarePath)
@@ -119,6 +136,12 @@ namespace FCatFlasher.Services
         private async Task<string> RunCli(string arguments, int timeoutMs)
         {
             var output = new StringBuilder();
+
+            if (string.IsNullOrWhiteSpace(CliPath) || !File.Exists(CliPath))
+            {
+                output.AppendLine($"ERROR: STM32Cube CLI not found: {CliPath}");
+                return output.ToString();
+            }
 
             var psi = new ProcessStartInfo
             {

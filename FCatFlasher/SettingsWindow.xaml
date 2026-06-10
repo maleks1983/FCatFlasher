@@ -2,8 +2,8 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Налаштування"
-        Height="170"
-        Width="320"
+        Height="280"
+        Width="620"
         WindowStartupLocation="CenterOwner">
 
     <StackPanel Margin="15">
@@ -23,9 +23,44 @@
                     Command="{Binding RefreshComPortsCommand}"/>
 
         </StackPanel>
+
+        <TextBlock Text="Папка тестових прошивок"/>
+
+        <StackPanel Orientation="Horizontal"
+                    Margin="0,5,0,12">
+
+            <TextBox Width="460"
+                     Height="25"
+                     VerticalContentAlignment="Center"
+                     Text="{Binding TestFirmwareDirectory, UpdateSourceTrigger=PropertyChanged}"/>
+
+            <Button Content="Обрати"
+                    Width="90"
+                    Margin="15,0,0,0"
+                    Command="{Binding BrowseTestFirmwareDirectoryCommand}"/>
+
+        </StackPanel>
+
+        <TextBlock Text="STM32Cube CLI"/>
+
+        <StackPanel Orientation="Horizontal"
+                    Margin="0,5,0,5">
+
+            <TextBox Width="460"
+                     Height="25"
+                     VerticalContentAlignment="Center"
+                     Text="{Binding StmCubeCliPath, UpdateSourceTrigger=PropertyChanged}"/>
+
+            <Button Content="Обрати"
+                    Width="90"
+                    Margin="15,0,0,0"
+                    Command="{Binding BrowseStmCubeCliCommand}"/>
+
+        </StackPanel>
+
         <Button Content="OK"
                 Width="90"
-                Margin="0,20,0,0"
+                Margin="0,12,0,0"
                 IsCancel="True"/>
 
     </StackPanel>
