@@ -1,0 +1,71 @@
+<Window
+    x:Class="FCatFlasher.ProductionStartWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Початок прошивки"
+    Width="460"
+    Height="320"
+    MinWidth="460"
+    MinHeight="320"
+    ResizeMode="NoResize"
+    WindowStartupLocation="CenterOwner">
+
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBlock
+            Grid.Row="0"
+            Margin="0,0,0,16"
+            FontWeight="Bold"
+            FontSize="14"
+            Text="Дані для циклу прошивки" />
+
+        <StackPanel Grid.Row="1" Margin="0,0,0,14">
+            <TextBlock Margin="0,0,0,4" Text="Назва прошивки" />
+            <TextBox
+                x:Name="FirmwareNameTextBox"
+                Height="32"
+                VerticalContentAlignment="Center" />
+        </StackPanel>
+
+        <StackPanel Grid.Row="2">
+            <TextBlock Margin="0,0,0,4" Text="Кількість в коробці" />
+            <TextBox
+                x:Name="BoxQuantityTextBox"
+                Height="32"
+                VerticalContentAlignment="Center" />
+        </StackPanel>
+
+        <TextBlock
+            x:Name="ErrorTextBlock"
+            Grid.Row="3"
+            Margin="0,10,0,0"
+            Foreground="DarkRed"
+            TextWrapping="Wrap" />
+
+        <StackPanel
+            Grid.Row="4"
+            Margin="0,16,0,0"
+            HorizontalAlignment="Right"
+            Orientation="Horizontal">
+            <Button
+                Width="100"
+                Height="34"
+                Margin="0,0,10,0"
+                Click="OkButton_Click"
+                Content="OK" />
+
+            <Button
+                Width="100"
+                Height="34"
+                Click="CancelButton_Click"
+                Content="Скасувати" />
+        </StackPanel>
+    </Grid>
+</Window>

@@ -1,4 +1,6 @@
-﻿using FCatFlasher.ViewModels;
+using FCatFlasher.Models;
+using FCatFlasher.Services;
+using FCatFlasher.ViewModels;
 using System.Windows;
 using System.Windows.Controls;
 
@@ -7,16 +9,24 @@ namespace FCatFlasher
     public partial class MainWindow : Window
     {
         private int _lastSelectedTabIndex = 0;
-        public MainWindow()
+
+        internal MainWindow(
+            ApiService apiService,
+            LocalDatabaseService localDatabaseService,
+            CurrentUser currentUser)
         {
             InitializeComponent();
-            DataContext = new MainViewModel();
+            DataContext = new MainViewModel(
+                apiService,
+                localDatabaseService,
+                currentUser);
         }
 
         private void LogTextBox_TextChanged(object sender, TextChangedEventArgs e)
         {
             LogTextBox.ScrollToEnd();
         }
+
         private void TabControl_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (sender is not TabControl tabControl)
@@ -37,20 +47,7 @@ namespace FCatFlasher
             if (tabControl.SelectedItem is not TabItem tab)
                 return;
 
-            switch (tab.Header?.ToString())
-            {
-                case "Тестова прошивка":
-                    vm.FooterTitle = "Протестовано за сьогодні:";
-                    break;
-
-                case "Прошивка":
-                    vm.FooterTitle = "Прошито за сьогодні:";
-                    break;
-
-                case "Перепрошивка":
-                    vm.FooterTitle = "Перепрошито за сьогодні:";
-                    break;
-            }
+            vm.SetFooterMode(tab.Header?.ToString());
         }
     }
 }

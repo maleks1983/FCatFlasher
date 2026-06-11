@@ -1,20 +1,15 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.IO;
 using System.Text;
 
 namespace FCatFlasher.Services
 {
-    internal class FlashService
+    internal class FirmwareService
     {
         private const string DefaultCliPath =
             "E:\\InicaalDG\\STM32CubeProgrammer\\bin\\STM32_Programmer_CLI.exe";
 
-        private const string DefaultTestFirmwareDirectory = @"D:\";
-        private const string G0TestFirmwareFileName = "test.hex";
-        private const string C0TestFirmwareFileName = "c011_factory_test_02_03_2026.hex";
-
         public string CliPath { get; set; } = DefaultCliPath;
-        public string TestFirmwareDirectory { get; set; } = DefaultTestFirmwareDirectory;
 
         public async Task<string> GetDeviceType()
         {
@@ -52,65 +47,30 @@ namespace FCatFlasher.Services
             }
         }
 
-        public async Task<string> FlashAutoTestFirmware()
+        public async Task<string> UnlockRdp()
         {
-            string device = await GetDeviceType();
-
-            return await FlashTestFirmwareForDevice(device);
+            return await RunCli(
+                "-c port=SWD -ob rdp=0xAA",
+                30000
+            );
         }
 
-        public async Task<string> FlashTestFirmwareForDevice(string device)
+        public async Task<string> WriteFirmware(string firmwarePath, bool resetAfterWrite)
         {
-            var output = new StringBuilder();
+            string resetArgument = resetAfterWrite ? " -rst" : "";
 
-            output.AppendLine("=== UNLOCK RDP 0xAA ===");
-
-            output.AppendLine(
-                await RunCli(
-                    "-c port=SWD -ob rdp=0xAA",
-                    30000
-                )
+            return await RunCli(
+                $"-c port=SWD -w \"{firmwarePath}\" -v{resetArgument}",
+                30000
             );
-
-            output.AppendLine($"MCU: {device}");
-
-            string firmwarePath;
-
-            if (device == "G0")
-                firmwarePath = GetTestFirmwarePath(G0TestFirmwareFileName);
-            else if (device == "C0")
-                firmwarePath = GetTestFirmwarePath(C0TestFirmwareFileName);
-            else
-            {
-                output.AppendLine("ERROR: Unknown MCU");
-                return output.ToString();
-            }
-
-            output.AppendLine($"=== FLASH TEST FIRMWARE: {firmwarePath} ===");
-
-            if (!File.Exists(firmwarePath))
-            {
-                output.AppendLine($"ERROR: Test firmware not found: {firmwarePath}");
-                return output.ToString();
-            }
-
-            output.AppendLine(
-                await RunCli(
-                    $"-c port=SWD -w \"{firmwarePath}\" -v -rst",
-                    30000
-                )
-            );
-
-            return output.ToString();
         }
 
-        private string GetTestFirmwarePath(string fileName)
+        public async Task<string> SetRdpProtected()
         {
-            string directory = string.IsNullOrWhiteSpace(TestFirmwareDirectory)
-                ? DefaultTestFirmwareDirectory
-                : TestFirmwareDirectory;
-
-            return Path.Combine(directory, fileName);
+            return await RunCli(
+                "-c port=SWD -ob rdp=0xBB -rst",
+                30000
+            );
         }
 
         public async Task<string> FlashProductionFirmware(string firmwarePath)
@@ -118,22 +78,10 @@ namespace FCatFlasher.Services
             var output = new StringBuilder();
 
             output.AppendLine($"=== FLASH PRODUCTION FIRMWARE: {firmwarePath} ===");
-
-            output.AppendLine(
-                await RunCli(
-                    $"-c port=SWD -w \"{firmwarePath}\" -v",
-                    30000
-                )
-            );
+            output.AppendLine(await WriteFirmware(firmwarePath, resetAfterWrite: false));
 
             output.AppendLine("=== SET RDP 0xBB ===");
-
-            output.AppendLine(
-                await RunCli(
-                    "-c port=SWD -ob rdp=0xBB -rst",
-                    30000
-                )
-            );
+            output.AppendLine(await SetRdpProtected());
 
             return output.ToString();
         }
@@ -213,6 +161,5 @@ namespace FCatFlasher.Services
 
             return false;
         }
-
     }
 }

@@ -8,9 +8,14 @@
 
         public string FirmwareName { get; set; } = string.Empty;
 
+        public string SerialNumbersText { get; set; } = string.Empty;
+
         public string FirstSerial { get; set; } = string.Empty;
 
         public string LastSerial { get; set; } = string.Empty;
-        public string SerialRangeText => $"{FirstSerial} - {LastSerial}";
+
+        public string SerialRangeText => string.IsNullOrWhiteSpace(SerialNumbersText)
+            ? $"{FirstSerial} - {LastSerial}"
+            : SerialNumbersText;
     }
 }

@@ -11,19 +11,28 @@
 
     <DockPanel>
 
-        <Menu DockPanel.Dock="Top">
-            <MenuItem Header="_Файл">
-                <MenuItem Header="Вихід" />
-            </MenuItem>
+        <DockPanel DockPanel.Dock="Top" LastChildFill="True">
+            <TextBlock
+                DockPanel.Dock="Right"
+                Margin="12,0,12,0"
+                VerticalAlignment="Center"
+                FontWeight="SemiBold"
+                Text="{Binding CurrentUserName, StringFormat=Користувач: {0}}" />
 
-            <MenuItem Header="_Налаштування">
-                <MenuItem Command="{Binding OpenSettingsCommand}" Header="Налаштування" />
-            </MenuItem>
-        </Menu>
+            <Menu>
+                <MenuItem Header="_Файл">
+                    <MenuItem Header="Вихід" />
+                </MenuItem>
+
+                <MenuItem Header="_Налаштування">
+                    <MenuItem Command="{Binding OpenSettingsCommand}" Header="Налаштування" />
+                </MenuItem>
+            </Menu>
+        </DockPanel>
 
         <Grid Margin="10">
             <Grid.RowDefinitions>
-                <RowDefinition Height="248" />
+                <RowDefinition Height="285" />
                 <RowDefinition Height="*" />
                 <RowDefinition Height="50" />
             </Grid.RowDefinitions>
@@ -64,7 +73,7 @@
 
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition />
-                            <ColumnDefinition Width="412" />
+                            <ColumnDefinition Width="320" />
                         </Grid.ColumnDefinitions>
 
                         <StackPanel>
@@ -72,7 +81,7 @@
                             <TextBlock Margin="0,0,0,5" Text="Серійний номер" />
 
                             <TextBox
-                                Width="289"
+                                Width="220"
                                 Height="25"
                                 Margin="0,0,0,10"
                                 HorizontalAlignment="Left"
@@ -126,48 +135,26 @@
                                     Margin="0,0,0,10"
                                     FontSize="16"
                                     FontWeight="Bold"
-                                    Text="Додаткові налаштування" />
+                                    Text="Обрано для циклу" />
 
                                 <TextBlock Margin="0,0,0,5" Text="Назва прошивки" />
 
-                                <TextBox
-                                    Height="25"
+                                <TextBlock
+                                    MinHeight="24"
                                     Margin="0,0,0,10"
-                                    VerticalContentAlignment="Center"
-                                    Text="{Binding FirmwareName, UpdateSourceTrigger=PropertyChanged}" />
+                                    Padding="4"
+                                    Background="#F2F2F2"
+                                    Text="{Binding FirmwareName}" />
 
-                                <Grid Margin="0,0,0,10">
+                                <TextBlock Margin="0,0,0,5" Text="Кількість в коробці" />
 
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="*" />
-                                    </Grid.ColumnDefinitions>
+                                <TextBlock
+                                    MinHeight="24"
+                                    Padding="4"
+                                    Background="#F2F2F2"
+                                    Text="{Binding BoxQuantityText}" />
 
-                                    <StackPanel Grid.Column="0" Margin="0,0,5,0">
-
-                                        <TextBlock Margin="0,0,0,5" Text="Кількість в коробці" />
-
-                                        <TextBox
-                                            Height="25"
-                                            VerticalContentAlignment="Center"
-                                            Text="{Binding BoxQuantityText, UpdateSourceTrigger=PropertyChanged}" />
-
-                                    </StackPanel>
-
-                                    <StackPanel Grid.Column="1" Margin="5,0,0,0">
-
-                                        <TextBlock Margin="0,0,0,5" Text="Запланована кількість" />
-
-                                        <TextBox
-                                            Height="25"
-                                            VerticalContentAlignment="Center"
-                                            Text="{Binding PlannedQuantityText, UpdateSourceTrigger=PropertyChanged}" />
-
-                                    </StackPanel>
-
-                                </Grid>
-
-                                <TextBlock Margin="0,10,0,0" Text="{Binding Status, StringFormat=Статус: \{0\}}" />
+                                <TextBlock Margin="0,16,0,0" Text="{Binding Status, StringFormat=Статус: \{0\}}" />
                             </StackPanel>
 
                         </Border>
@@ -176,12 +163,19 @@
                 </TabItem>
 
                 <TabItem Header="Перепрошивка">
-                    <StackPanel Margin="10,0,10,0">
+                    <Grid Margin="10,0,10,0">
+
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition />
+                            <ColumnDefinition Width="320" />
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel>
 
                         <TextBlock Margin="0,0,0,5" Text="Серійний номер" />
 
                         <TextBox
-                            Width="300"
+                            Width="220"
                             Margin="0,0,0,10"
                             HorizontalAlignment="Left"
                             FontSize="18"
@@ -192,7 +186,7 @@
                         <StackPanel Margin="0,0,0,10" Orientation="Horizontal">
 
                             <TextBox
-                                Width="650"
+                                Width="446"
                                 Margin="0,0,10,0"
                                 Text="{Binding G0FirmwarePath, UpdateSourceTrigger=PropertyChanged}" />
 
@@ -207,7 +201,7 @@
                         <StackPanel Margin="0,0,0,10" Orientation="Horizontal">
 
                             <TextBox
-                                Width="650"
+                                Width="446"
                                 Margin="0,0,10,0"
                                 Text="{Binding C0FirmwarePath, UpdateSourceTrigger=PropertyChanged}" />
 
@@ -232,7 +226,45 @@
                                 Content="Стоп" />
                         </StackPanel>
 
-                    </StackPanel>
+                        </StackPanel>
+
+                        <Border
+                            Grid.Column="1"
+                            Margin="12,0,0,0"
+                            Padding="10"
+                            BorderBrush="Gray"
+                            BorderThickness="1">
+
+                            <StackPanel>
+                                <TextBlock
+                                    Margin="0,0,0,10"
+                                    FontSize="16"
+                                    FontWeight="Bold"
+                                    Text="Обрано для перепрошивки" />
+
+                                <TextBlock Margin="0,0,0,5" Text="ID замовлення" />
+
+                                <TextBlock
+                                    MinHeight="24"
+                                    Margin="0,0,0,10"
+                                    Padding="4"
+                                    Background="#F2F2F2"
+                                    Text="{Binding ReworkOrderId}" />
+
+                                <TextBlock Margin="0,0,0,5" Text="Назва прошивки" />
+
+                                <TextBlock
+                                    MinHeight="24"
+                                    Padding="4"
+                                    Background="#F2F2F2"
+                                    Text="{Binding FirmwareName}" />
+
+                                <TextBlock Margin="0,16,0,0" Text="{Binding Status, StringFormat=Статус: \{0\}}" />
+                            </StackPanel>
+
+                        </Border>
+
+                    </Grid>
                 </TabItem>
 
             </TabControl>
@@ -241,7 +273,7 @@
 
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="350" />
+                    <ColumnDefinition Width="430" />
                 </Grid.ColumnDefinitions>
 
                 <!--  Лог  -->
@@ -256,7 +288,7 @@
                     TextWrapping="NoWrap"
                     VerticalScrollBarVisibility="Auto" />
 
-                <!--  Звіт  -->
+                <!--  Локальні дані  -->
                 <Border
                     Grid.Column="1"
                     Margin="10,0,0,0"
@@ -270,49 +302,61 @@
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" />
 
-                        </Grid.RowDefinitions>
+                            </Grid.RowDefinitions>
 
                         <!--  Заголовок  -->
+                        <TextBlock
+                            Grid.Row="0"
+                            Margin="0,0,0,6"
+                            FontWeight="Bold"
+                            Text="Локальні дані" />
+
                         <Grid
                             Grid.Row="0"
-                            Margin="0,0,0,5"
+                            Margin="0,24,0,5"
                             Background="#E5E5E5">
 
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="40" />
+                                <ColumnDefinition Width="55" />
+                                <ColumnDefinition Width="85" />
                                 <ColumnDefinition Width="120" />
-                                <ColumnDefinition Width="50" />
-                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="125" />
+                                <ColumnDefinition Width="35" />
                             </Grid.ColumnDefinitions>
 
                             <TextBlock
                                 Grid.Column="0"
-                                FontWeight="Bold"
-                                OpacityMask="Black"
                                 Margin="5,0,0,5"
-                                Text="id" />
+                                FontWeight="Bold"
+                                Text="Зам." />
 
                             <TextBlock
                                 Grid.Column="1"
                                 FontWeight="Bold"
-                                Text="Діапазон" />
+                                Text="Серійник" />
 
                             <TextBlock
                                 Grid.Column="2"
                                 FontWeight="Bold"
-                                Text="К-сть" />
+                                TextTrimming="CharacterEllipsis"
+                                Text="Прошивка" />
 
                             <TextBlock
                                 Grid.Column="3"
                                 FontWeight="Bold"
-                                Text="Прошивка" />
+                                Text="Дата" />
+
+                            <TextBlock
+                                Grid.Column="4"
+                                FontWeight="Bold"
+                                Text="МК" />
 
                         </Grid>
 
                         <!--  Дані  -->
                         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
 
-                            <ItemsControl ItemsSource="{Binding BoxReports}">
+                            <ItemsControl ItemsSource="{Binding PendingRegistrations}">
 
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
@@ -320,19 +364,25 @@
                                         <Grid Margin="0,2">
 
                                             <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="40" />
+                                                <ColumnDefinition Width="55" />
+                                                <ColumnDefinition Width="85" />
                                                 <ColumnDefinition Width="120" />
-                                                <ColumnDefinition Width="50" />
-                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="125" />
+                                                <ColumnDefinition Width="35" />
                                             </Grid.ColumnDefinitions>
 
-                                            <TextBlock Grid.Column="0" Text="{Binding BoxNumber}" />
+                                            <TextBlock Grid.Column="0" Text="{Binding OrderId}" />
 
-                                            <TextBlock Grid.Column="1" Text="{Binding SerialRangeText}" />
+                                            <TextBlock Grid.Column="1" Text="{Binding SerialNumber}" />
 
-                                            <TextBlock Grid.Column="2" Text="{Binding Quantity}" />
+                                            <TextBlock
+                                                Grid.Column="2"
+                                                Text="{Binding FirmwareName}"
+                                                TextTrimming="CharacterEllipsis" />
 
-                                            <TextBlock Grid.Column="3" Text="{Binding FirmwareName}" />
+                                            <TextBlock Grid.Column="3" Text="{Binding CreatedAtText}" />
+
+                                            <TextBlock Grid.Column="4" Text="{Binding McuName}" />
 
                                         </Grid>
 

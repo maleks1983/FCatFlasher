@@ -23,10 +23,17 @@ namespace FCatFlasher.ViewModels
         private const int PowerOnSettleDelayMs = 100;
         private const int StlinkConnectionCheckTimeoutMs = 1000;
         private const int StlinkPowerRetryIntervalMs = 3000;
+        private const string TestRegistrationType = "TEST";
+        private const string ProductionRegistrationType = "PRODUCTION";
+        private const string ReworkRegistrationType = "REWORK";
 
-        private readonly FlashService _flashService = new();
+        private readonly FirmwareService _firmwareService = new();
+        private readonly TestFirmwareService _testFirmwareService;
         private readonly SerialService _serial = new();
         private readonly SettingsService _settingsService = new();
+        private readonly ApiService _apiService;
+        private readonly LocalDatabaseService _localDatabaseService;
+        private readonly CurrentUser _currentUser;
         private readonly DiagnosticsParser _diagnosticsParser = new();
         private readonly BoxTrackingService _boxTracking = new();
         private readonly UniqueBoardCounter _uniqueBoardCounter = new();
@@ -52,8 +59,12 @@ namespace FCatFlasher.ViewModels
         }
 
         private WorkMode _workMode = WorkMode.Production;
+        private WorkMode _footerMode = WorkMode.TestFirmware;
         private CycleState _cycleState = CycleState.Idle;
         private DateTime _lastStlinkPowerRetryUtc = DateTime.MinValue;
+        private int _testedToday;
+        private int _flashedToday;
+        private int _reflashedToday;
 
         public ICommand OpenSettingsCommand { get; }
         public ICommand ConnectCommand { get; }
@@ -74,7 +85,27 @@ namespace FCatFlasher.ViewModels
 
         private BoxReport? _completedBox;
 
-        public ObservableCollection<BoxReport> BoxReports => _boxTracking.BoxReports;
+        public ObservableCollection<PendingRegistration> PendingRegistrations { get; } = new();
+
+        public string CurrentUserName
+        {
+            get
+            {
+                string name = string.IsNullOrWhiteSpace(_currentUser.FullName)
+                    ? _currentUser.Username
+                    : GetFirstName(_currentUser.FullName);
+
+                return _currentUser.IsOffline ? $"{name} (offline)" : name;
+            }
+        }
+
+        private static string GetFirstName(string fullName)
+        {
+            string[] parts = fullName
+                .Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+            return parts.Length >= 2 ? parts[1] : fullName.Trim();
+        }
 
         private string _scannedSerial = "";
         public string ScannedSerial
@@ -135,6 +166,18 @@ namespace FCatFlasher.ViewModels
             }
         }
 
+        private string _reworkOrderId = "";
+        public string ReworkOrderId
+        {
+            get => _reworkOrderId;
+            set
+            {
+                _reworkOrderId = value;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+
         private string _testFirmwareDirectory = @"D:\";
         public string TestFirmwareDirectory
         {
@@ -158,6 +201,18 @@ namespace FCatFlasher.ViewModels
                 _stmCubeCliPath = value;
                 OnPropertyChanged();
                 ApplyFlashSettings();
+                SaveSettings();
+            }
+        }
+
+        private string _apiBaseUrl = "";
+        public string ApiBaseUrl
+        {
+            get => _apiBaseUrl;
+            set
+            {
+                _apiBaseUrl = value;
+                OnPropertyChanged();
                 SaveSettings();
             }
         }
@@ -233,6 +288,7 @@ namespace FCatFlasher.ViewModels
             {
                 _firmwareName = value;
                 OnPropertyChanged();
+                SaveSettings();
             }
         }
         private int _boxQuantity;
@@ -248,6 +304,7 @@ namespace FCatFlasher.ViewModels
                 _boxQuantity = value;
                 OnPropertyChanged();
                 OnPropertyChanged(nameof(BoxQuantityText));
+                SaveSettings();
             }
         }
 
@@ -256,44 +313,16 @@ namespace FCatFlasher.ViewModels
             get => BoxQuantity == 0
                 ? string.Empty
                 : BoxQuantity.ToString(CultureInfo.InvariantCulture);
-            set
-            {
-                BoxQuantity = ParsePositiveInt(value);
-                OnPropertyChanged();
-            }
-        }
-
-        private int _plannedQuantity;
-
-        public int PlannedQuantity
-        {
-            get => _plannedQuantity;
-            set
-            {
-                if (_plannedQuantity == value)
-                    return;
-
-                _plannedQuantity = value;
-                OnPropertyChanged();
-                OnPropertyChanged(nameof(PlannedQuantityText));
-            }
-        }
-
-        public string PlannedQuantityText
-        {
-            get => PlannedQuantity == 0
-                ? string.Empty
-                : PlannedQuantity.ToString(CultureInfo.InvariantCulture);
-            set
-            {
-                PlannedQuantity = ParsePositiveInt(value);
-                OnPropertyChanged();
-            }
         }
 
         public int FlashedToday
         {
-            get => _boxTracking.FlashedToday;
+            get => _footerMode switch
+            {
+                WorkMode.TestFirmware => _testedToday,
+                WorkMode.Reflash => _reflashedToday,
+                _ => _flashedToday
+            };
         }
 
         public int UniqueFlashedSinceStart
@@ -316,8 +345,16 @@ namespace FCatFlasher.ViewModels
             }
         }
 
-        public MainViewModel()
+        public MainViewModel(
+            ApiService apiService,
+            LocalDatabaseService localDatabaseService,
+            CurrentUser currentUser)
         {
+            _apiService = apiService;
+            _localDatabaseService = localDatabaseService;
+            _currentUser = currentUser;
+            _testFirmwareService = new TestFirmwareService(_firmwareService);
+
             ConnectCommand = new RelayCommand(Connect);
 
             TestFirmwareCommand = new RelayCommand(
@@ -336,6 +373,9 @@ namespace FCatFlasher.ViewModels
             FlashCommand = new RelayCommand(
                 async () =>
                 {
+                    if (!RequestProductionStartData())
+                        return;
+
                     if (!EnsureConnected())
                         return;
 
@@ -350,6 +390,9 @@ namespace FCatFlasher.ViewModels
             ReflashCommand = new RelayCommand(
                 async () =>
                 {
+                    if (!RequestOrderId())
+                        return;
+
                     if (!EnsureConnected())
                         return;
 
@@ -371,22 +414,12 @@ namespace FCatFlasher.ViewModels
             StopCommand = new RelayCommand(async () => await StopAll());
 
             _runTimer.Tick += (_, _) => UpdateRunElapsed();
-
             _serial.DataReceived += OnDataReceived;
 
             RefreshComPorts();
             LoadSettings();
+            LoadApiData();
             _settingsLoaded = true;
-        }
-
-        private static int ParsePositiveInt(string value)
-        {
-            if (string.IsNullOrWhiteSpace(value))
-                return 0;
-
-            return int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out int result) && result > 0
-                ? result
-                : 0;
         }
 
         private void OpenSettings()
@@ -398,6 +431,80 @@ namespace FCatFlasher.ViewModels
             };
 
             window.ShowDialog();
+        }
+
+        public void SetFooterMode(string? tabHeader)
+        {
+            switch (tabHeader)
+            {
+                case "Тестова прошивка":
+                    _footerMode = WorkMode.TestFirmware;
+                    FooterTitle = "Протестовано за сьогодні:";
+                    break;
+
+                case "Перепрошивка":
+                    _footerMode = WorkMode.Reflash;
+                    FooterTitle = "Перепрошито за сьогодні:";
+                    break;
+
+                default:
+                    _footerMode = WorkMode.Production;
+                    FooterTitle = "Прошито за сьогодні:";
+                    break;
+            }
+
+            OnPropertyChanged(nameof(FlashedToday));
+        }
+
+        private bool RequestOrderId()
+        {
+            var window = new OrderIdWindow(ReworkOrderId, FirmwareName)
+            {
+                Owner = Application.Current.MainWindow
+            };
+
+            if (window.ShowDialog() != true)
+                return false;
+
+            ReworkOrderId = window.OrderId;
+            LoadReworkOrderData(window.FirmwareName);
+            return true;
+        }
+
+        private void LoadReworkOrderData(string fallbackFirmwareName)
+        {
+            try
+            {
+                ReworkOrderInfo? order = _apiService.LoadReworkOrder(ReworkOrderId);
+
+                if (order == null)
+                {
+                    FirmwareName = fallbackFirmwareName;
+                    return;
+                }
+
+                FirmwareName = order.FirmwareName;
+            }
+            catch (Exception ex)
+            {
+                FirmwareName = fallbackFirmwareName;
+                Log += "ORDER API ERROR: " + ex.Message + "\n";
+            }
+        }
+
+        private bool RequestProductionStartData()
+        {
+            var window = new ProductionStartWindow(FirmwareName, BoxQuantity)
+            {
+                Owner = Application.Current.MainWindow
+            };
+
+            if (window.ShowDialog() != true)
+                return false;
+
+            FirmwareName = window.FirmwareName;
+            BoxQuantity = window.BoxQuantity;
+            return true;
         }
 
         private void RefreshComPorts()
@@ -596,7 +703,7 @@ namespace FCatFlasher.ViewModels
 
             while (_cycleState == CycleState.WaitingBoard)
             {
-                bool present = await _flashService.CheckConnection();
+                bool present = await _firmwareService.CheckConnection();
 
                 if (present)
                 {
@@ -642,7 +749,7 @@ namespace FCatFlasher.ViewModels
                 ProgressValue = 50;
                 Log += "=== ТЕСТОВА ПРОШИВКА ===\n";
 
-                string result = await _flashService.FlashAutoTestFirmware();
+                string result = await _testFirmwareService.FlashAutoTestFirmware();
 
                 if (TestFirmwareFailed(result))
                 {
@@ -663,6 +770,8 @@ namespace FCatFlasher.ViewModels
 
                 Status = "Test firmware OK";
                 ProgressValue = 100;
+
+                RegisterDeviceInDatabase("");
 
                 Log += "\n=== ТЕСТОВУ ПРОШИВКУ ЗАВЕРШЕНО ===\n";
                 Log += ">>> Заберіть плату зі стенда...\n";
@@ -700,7 +809,7 @@ namespace FCatFlasher.ViewModels
                 ProgressValue = 30;
                 Log += "=== ПЕРЕПРОШИВКА: СПОЧАТКУ ТЕСТОВА ===\n";
 
-                _currentDeviceType = await _flashService.GetDeviceType();
+                _currentDeviceType = await _firmwareService.GetDeviceType();
 
                 if (_currentDeviceType == "UNKNOWN")
                 {
@@ -746,7 +855,7 @@ namespace FCatFlasher.ViewModels
 
         private async Task<string> FlashAutoTestFirmwareWithRetry(string deviceType)
         {
-            string result = await _flashService.FlashTestFirmwareForDevice(deviceType);
+            string result = await _testFirmwareService.FlashTestFirmwareForDevice(deviceType);
 
             if (!TestFirmwareFailed(result))
                 return result;
@@ -755,7 +864,7 @@ namespace FCatFlasher.ViewModels
 
             await PowerCycleToStlinkMode();
 
-            return await _flashService.FlashTestFirmwareForDevice(deviceType);
+            return await _testFirmwareService.FlashTestFirmwareForDevice(deviceType);
         }
 
         private static bool TestFirmwareFailed(string result)
@@ -881,14 +990,14 @@ namespace FCatFlasher.ViewModels
 
         private async Task<bool> EnsureStlinkReady(string context)
         {
-            if (await _flashService.CheckConnection(StlinkConnectionCheckTimeoutMs))
+            if (await _firmwareService.CheckConnection(StlinkConnectionCheckTimeoutMs))
                 return true;
 
             Log += $"WARNING: ST-LINK немає зв'язку ({context}). Повторно подаємо живлення...\n";
 
             await PowerCycleToStlinkMode();
 
-            if (await _flashService.CheckConnection(StlinkConnectionCheckTimeoutMs))
+            if (await _firmwareService.CheckConnection(StlinkConnectionCheckTimeoutMs))
             {
                 Log += "=== ST-LINK зв'язок відновлено ===\n";
                 return true;
@@ -994,6 +1103,21 @@ namespace FCatFlasher.ViewModels
                     return;
                 }
 
+                if (_workMode == WorkMode.Reflash &&
+                    _currentDeviceType == "C0" &&
+                    !IsC0FirmwareNameValid(firmwareToFlash))
+                {
+                    Log += $"ERROR: C0 firmware filename must contain c011: {firmwareToFlash}\n";
+                    Status = "Wrong C0 firmware";
+                    ProgressValue = 100;
+                    Log += ">>> Заберіть плату зі стенда...\n";
+
+                    _cycleState = CycleState.WaitingRemove;
+
+                    await WaitBoardRemoved();
+                    return;
+                }
+
                 if (!System.IO.File.Exists(firmwareToFlash))
                 {
                     Log += $"Firmware not found: {firmwareToFlash}\n";
@@ -1007,7 +1131,7 @@ namespace FCatFlasher.ViewModels
                     return;
                 }
 
-                string result = await _flashService.FlashProductionFirmware(firmwareToFlash);
+                string result = await _firmwareService.FlashProductionFirmware(firmwareToFlash);
 
                 if (FlashResultFailed(result))
                 {
@@ -1030,6 +1154,7 @@ namespace FCatFlasher.ViewModels
                 Status = "Flash OK";
                 ProgressValue = 100;
 
+                RegisterDeviceInDatabase(firmwareToFlash);
                 _completedBox = RegisterFlashedBoard();
                 RegisterUniqueFlashedBoard();
                 ScannedSerial = "";
@@ -1054,6 +1179,13 @@ namespace FCatFlasher.ViewModels
             }
         }
 
+        private static bool IsC0FirmwareNameValid(string firmwarePath)
+        {
+            string fileName = System.IO.Path.GetFileName(firmwarePath);
+
+            return fileName.Contains("c011", StringComparison.OrdinalIgnoreCase);
+        }
+
         private async Task WaitBoardRemoved()
         {
             Status = "Waiting remove";
@@ -1061,7 +1193,7 @@ namespace FCatFlasher.ViewModels
 
             while (_cycleState == CycleState.WaitingRemove)
             {
-                bool present = await _flashService.CheckConnection(BoardRemovedCheckTimeoutMs);
+                bool present = await _firmwareService.CheckConnection(BoardRemovedCheckTimeoutMs);
 
                 if (present)
                 {
@@ -1101,7 +1233,7 @@ namespace FCatFlasher.ViewModels
 
                 Log += "=== ЖИВЛЕННЯ ВИМКНЕНО ===\n";
 
-                while (await _flashService.CheckConnection(BoardRemovedCheckTimeoutMs))
+                while (await _firmwareService.CheckConnection(BoardRemovedCheckTimeoutMs))
                 {
                     Log += ">>> ST-LINK ще бачить плату. Чекаємо...\n";
                     await Task.Delay(100);
@@ -1169,9 +1301,279 @@ namespace FCatFlasher.ViewModels
                 ScannedSerial,
                 FirmwareName);
 
+            if (report != null)
+                SaveBoxReport(report);
+
             OnPropertyChanged(nameof(FlashedToday));
 
             return report;
+        }
+
+        private void LoadApiData()
+        {
+            if (_currentUser.IsOffline)
+            {
+                LoadOfflineData("=== TEST MODE: API не використовується ===");
+                return;
+            }
+
+            try
+            {
+                _boxTracking.LoadReports(_apiService.LoadBoxReports());
+                LoadTodayCountersFromApi();
+
+                OnPropertyChanged(nameof(FlashedToday));
+            }
+            catch (Exception ex)
+            {
+                Log += "API ERROR: " + ex.Message + "\n";
+                LoadOfflineData("=== OFFLINE: використовуємо локальні незасинхронізовані дані ===");
+            }
+        }
+
+        private void LoadOfflineData(string message)
+        {
+            try
+            {
+                _boxTracking.LoadReports(_localDatabaseService.LoadPendingBoxReports());
+                LoadTodayCountersFromLocalDatabase();
+
+                Log += message + "\n";
+            }
+            catch (Exception localEx)
+            {
+                _boxTracking.LoadReports(Array.Empty<BoxReport>());
+                ResetTodayCounters();
+                PendingRegistrations.Clear();
+
+                Log += "LOCAL DB ERROR: " + localEx.Message + "\n";
+                Log += "=== TEST MODE: стартуємо без завантаження статистики ===\n";
+            }
+
+            LoadPendingRegistrations();
+            OnPropertyChanged(nameof(FlashedToday));
+        }
+
+        private void LoadTodayCountersFromApi()
+        {
+            _testedToday = _apiService.CountDeviceRegistrationsFrom(DateTime.Now, TestRegistrationType);
+            _flashedToday = _apiService.CountDeviceRegistrationsFrom(DateTime.Now, ProductionRegistrationType);
+            _reflashedToday = _apiService.CountDeviceRegistrationsFrom(DateTime.Now, ReworkRegistrationType);
+        }
+
+        private void LoadTodayCountersFromLocalDatabase()
+        {
+            _testedToday = _localDatabaseService.CountPendingDeviceRegistrationsFrom(DateTime.Now, TestRegistrationType);
+            _flashedToday = _localDatabaseService.CountPendingDeviceRegistrationsFrom(DateTime.Now, ProductionRegistrationType);
+            _reflashedToday = _localDatabaseService.CountPendingDeviceRegistrationsFrom(DateTime.Now, ReworkRegistrationType);
+        }
+
+        private void ResetTodayCounters()
+        {
+            _testedToday = 0;
+            _flashedToday = 0;
+            _reflashedToday = 0;
+        }
+
+        private void LoadPendingRegistrations()
+        {
+            PendingRegistrations.Clear();
+
+            try
+            {
+                foreach (PendingRegistration registration in _localDatabaseService.LoadPendingRegistrations())
+                    PendingRegistrations.Add(registration);
+            }
+            catch (Exception ex)
+            {
+                Log += "LOCAL DB ERROR: " + ex.Message + "\n";
+            }
+        }
+
+        private void RegisterDeviceInDatabase(string firmwarePath)
+        {
+            if (_currentUser.IsOffline)
+            {
+                RegisterDeviceLocally();
+
+                if (_workMode == WorkMode.Reflash)
+                    TryRegisterReworkLocally(firmwarePath);
+
+                return;
+            }
+
+            try
+            {
+                _apiService.AddDeviceRegistration(
+                    _currentUser.Id,
+                    ScannedSerial,
+                    _currentDeviceType,
+                    FirmwareName,
+                    GetCurrentRegistrationType());
+            }
+            catch (Exception ex)
+            {
+                _localDatabaseService.AddPendingDeviceRegistration(
+                    _currentUser.Id,
+                    GetCurrentOrderIdForLocalRegistration(),
+                    ScannedSerial,
+                    _currentDeviceType,
+                    FirmwareName,
+                    GetCurrentRegistrationType());
+
+                Log += "API ERROR: " + ex.Message + "\n";
+                Log += "=== OFFLINE: плату збережено локально для синхронізації ===\n";
+            }
+
+            IncrementTodayCounter(GetCurrentRegistrationType());
+
+            if (_workMode != WorkMode.Reflash)
+                return;
+
+            try
+            {
+                RegisterReworkInDatabase(firmwarePath);
+            }
+            catch (Exception ex)
+            {
+                RegisterReworkLocally(firmwarePath);
+
+                Log += "API ERROR: " + ex.Message + "\n";
+                Log += "=== OFFLINE: переробку збережено локально для синхронізації ===\n";
+            }
+        }
+
+        private void RegisterDeviceLocally()
+        {
+            try
+            {
+                _localDatabaseService.AddPendingDeviceRegistration(
+                    _currentUser.Id,
+                    GetCurrentOrderIdForLocalRegistration(),
+                    ScannedSerial,
+                    _currentDeviceType,
+                    FirmwareName,
+                    GetCurrentRegistrationType());
+
+                LoadPendingRegistrations();
+                IncrementTodayCounter(GetCurrentRegistrationType());
+            }
+            catch (Exception ex)
+            {
+                Log += "LOCAL DB ERROR: " + ex.Message + "\n";
+                Log += "=== TEST MODE: плату не збережено в локальну базу ===\n";
+            }
+        }
+
+        private string GetCurrentOrderIdForLocalRegistration()
+        {
+            return _workMode == WorkMode.Reflash ? ReworkOrderId : string.Empty;
+        }
+
+        private string GetCurrentRegistrationType()
+        {
+            return _workMode switch
+            {
+                WorkMode.TestFirmware => TestRegistrationType,
+                WorkMode.Reflash => ReworkRegistrationType,
+                _ => ProductionRegistrationType
+            };
+        }
+
+        private void IncrementTodayCounter(string registrationType)
+        {
+            switch (registrationType)
+            {
+                case TestRegistrationType:
+                    _testedToday++;
+                    break;
+
+                case ReworkRegistrationType:
+                    _reflashedToday++;
+                    break;
+
+                default:
+                    _flashedToday++;
+                    break;
+            }
+
+            OnPropertyChanged(nameof(FlashedToday));
+        }
+
+        private void RegisterReworkInDatabase(string firmwarePath)
+        {
+            string firmwareName = string.IsNullOrWhiteSpace(FirmwareName)
+                ? System.IO.Path.GetFileNameWithoutExtension(firmwarePath)
+                : FirmwareName;
+
+            _apiService.AddReworkRegistration(
+                _currentUser.Id,
+                ReworkOrderId,
+                ScannedSerial,
+                firmwareName,
+                firmwarePath,
+                _currentDeviceType,
+                "OK");
+        }
+
+        private void RegisterReworkLocally(string firmwarePath)
+        {
+            string firmwareName = string.IsNullOrWhiteSpace(FirmwareName)
+                ? System.IO.Path.GetFileNameWithoutExtension(firmwarePath)
+                : FirmwareName;
+
+            _localDatabaseService.AddPendingReworkRegistration(
+                _currentUser.Id,
+                ReworkOrderId,
+                ScannedSerial,
+                firmwareName,
+                firmwarePath,
+                _currentDeviceType,
+                "OK");
+        }
+
+        private void TryRegisterReworkLocally(string firmwarePath)
+        {
+            try
+            {
+                RegisterReworkLocally(firmwarePath);
+                LoadPendingRegistrations();
+            }
+            catch (Exception ex)
+            {
+                Log += "LOCAL DB ERROR: " + ex.Message + "\n";
+                Log += "=== TEST MODE: переробку не збережено в локальну базу ===\n";
+            }
+        }
+
+        private void SaveBoxReport(BoxReport report)
+        {
+            if (_currentUser.IsOffline)
+            {
+                try
+                {
+                    _localDatabaseService.AddPendingBoxReport(_currentUser.Id, report);
+                }
+                catch (Exception ex)
+                {
+                    Log += "LOCAL DB ERROR: " + ex.Message + "\n";
+                    Log += "=== TEST MODE: коробку не збережено в локальну базу ===\n";
+                }
+
+                return;
+            }
+
+            try
+            {
+                _apiService.AddBoxReport(_currentUser.Id, report);
+            }
+            catch (Exception ex)
+            {
+                _localDatabaseService.AddPendingBoxReport(_currentUser.Id, report);
+
+                Log += "API ERROR: " + ex.Message + "\n";
+                Log += "=== OFFLINE: коробку збережено локально для синхронізації ===\n";
+            }
         }
 
         private async Task ShowBoxCompletedWindow(BoxReport report)
@@ -1204,10 +1606,14 @@ namespace FCatFlasher.ViewModels
 
             SelectedComPort = settings.SelectedComPort;
             FirmwarePath = settings.FirmwarePath;
+            FirmwareName = settings.FirmwareName;
+            BoxQuantity = settings.BoxQuantity;
             G0FirmwarePath = settings.G0FirmwarePath;
             C0FirmwarePath = settings.C0FirmwarePath;
+            ReworkOrderId = settings.ReworkOrderId;
             TestFirmwareDirectory = settings.TestFirmwareDirectory;
             StmCubeCliPath = settings.StmCubeCliPath;
+            ApiBaseUrl = settings.ApiBaseUrl;
 
             ApplyFlashSettings();
         }
@@ -1221,17 +1627,21 @@ namespace FCatFlasher.ViewModels
             {
                 SelectedComPort = SelectedComPort,
                 FirmwarePath = FirmwarePath,
+                FirmwareName = FirmwareName,
+                BoxQuantity = BoxQuantity,
                 G0FirmwarePath = G0FirmwarePath,
                 C0FirmwarePath = C0FirmwarePath,
+                ReworkOrderId = ReworkOrderId,
                 TestFirmwareDirectory = TestFirmwareDirectory,
-                StmCubeCliPath = StmCubeCliPath
+                StmCubeCliPath = StmCubeCliPath,
+                ApiBaseUrl = ApiBaseUrl
             });
         }
 
         private void ApplyFlashSettings()
         {
-            _flashService.TestFirmwareDirectory = TestFirmwareDirectory;
-            _flashService.CliPath = StmCubeCliPath;
+            _testFirmwareService.TestFirmwareDirectory = TestFirmwareDirectory;
+            _firmwareService.CliPath = StmCubeCliPath;
         }
 
         private void ResetUniqueFlashedCounter()
