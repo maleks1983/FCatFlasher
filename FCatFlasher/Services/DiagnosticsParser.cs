@@ -5,10 +5,15 @@ namespace FCatFlasher.Services
         private bool _isReceiving;
         private string _report = string.Empty;
 
+        public int LastSig { get; private set; }
+        public string LastReport { get; private set; } = string.Empty;
+
         public void Reset()
         {
             _isReceiving = false;
             _report = string.Empty;
+            LastSig = 0;
+            LastReport = string.Empty;
         }
 
         public bool? ProcessLine(string line)
@@ -27,18 +32,22 @@ namespace FCatFlasher.Services
                 return null;
 
             _isReceiving = false;
+            LastReport = _report.Trim();
             return IsDiagnosticsOk(_report);
         }
 
-        private static bool IsDiagnosticsOk(string report)
+        private bool IsDiagnosticsOk(string report)
         {
+            int sig = GetReportInt(report, "SIG");
+            LastSig = sig;
+
             return report.Contains("OUT_IO: OK") &&
                    report.Contains("OUT_HS: OK") &&
                    report.Contains("OUT_LS: OK") &&
                    report.Contains("ADC: OK") &&
                    report.Contains("ACC: OK") &&
                    report.Contains("BUZ: OK") &&
-                   GetReportInt(report, "SIG") > 0;
+                   sig > 0;
         }
 
         private static int GetReportInt(string report, string key)

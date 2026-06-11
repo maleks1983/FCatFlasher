@@ -1,0 +1,8 @@
+{
+  "SelectedComPort": "COM5",
+  "FirmwarePath": "D:\\flesh\\c011_1khv_2sek_serednie_plus_crc.hex",
+  "G0FirmwarePath": "",
+  "C0FirmwarePath": "",
+  "TestFirmwareDirectory": "C:\\Program Files\\STMicroelectronics\\Flash\\Test_New",
+  "StmCubeCliPath": "C:\\Program Files\\STMicroelectronics\\STM32Cube\\STM32CubeProgrammer\\bin\\STM32_Programmer_CLI.exe"
+}

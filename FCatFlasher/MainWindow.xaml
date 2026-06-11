@@ -374,6 +374,19 @@
                         Margin="30,0,0,0"
                         VerticalAlignment="Center"
                         FontWeight="Bold"
+                        Text="Час:" />
+
+                    <TextBlock
+                        Margin="10,0,0,0"
+                        VerticalAlignment="Center"
+                        FontSize="18"
+                        FontWeight="Bold"
+                        Text="{Binding RunElapsedText}" />
+
+                    <TextBlock
+                        Margin="30,0,0,0"
+                        VerticalAlignment="Center"
+                        FontWeight="Bold"
                         Text="Унікальних з запуску:" />
 
                     <TextBlock

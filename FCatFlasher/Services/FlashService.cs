@@ -54,6 +54,13 @@ namespace FCatFlasher.Services
 
         public async Task<string> FlashAutoTestFirmware()
         {
+            string device = await GetDeviceType();
+
+            return await FlashTestFirmwareForDevice(device);
+        }
+
+        public async Task<string> FlashTestFirmwareForDevice(string device)
+        {
             var output = new StringBuilder();
 
             output.AppendLine("=== UNLOCK RDP 0xAA ===");
@@ -64,8 +71,6 @@ namespace FCatFlasher.Services
                     30000
                 )
             );
-
-            string device = await GetDeviceType();
 
             output.AppendLine($"MCU: {device}");
 
