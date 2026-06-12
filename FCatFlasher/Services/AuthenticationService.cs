@@ -6,8 +6,12 @@ namespace FCatFlasher.Services
         ApiService apiService,
         LocalDatabaseService localDatabaseService)
     {
+        public string? LastLoginError { get; private set; }
+
         public CurrentUser? Login(string username, string password)
         {
+            LastLoginError = null;
+
             try
             {
                 CurrentUser? user = apiService.Login(username, password);
@@ -20,8 +24,10 @@ namespace FCatFlasher.Services
 
                 return user;
             }
-            catch
+            catch (Exception ex)
             {
+                LastLoginError = $"Не вдалося підключитися до Spring Boot API: {ex.Message}";
+
                 try
                 {
                     return localDatabaseService.LoginOffline(username, password)
@@ -44,7 +50,7 @@ namespace FCatFlasher.Services
 
             return new CurrentUser
             {
-                Id = 1,
+                Id = "00000000-0000-0000-0000-000000000001",
                 Username = "admin",
                 FullName = "Test Admin",
                 IsOffline = true

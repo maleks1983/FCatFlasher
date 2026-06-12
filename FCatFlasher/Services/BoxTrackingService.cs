@@ -25,6 +25,14 @@ namespace FCatFlasher.Services
             FlashedToday = Math.Max(0, flashedToday);
         }
 
+        public BoxReport? GetCurrentBoxReport(int boxQuantity, string firmwareName)
+        {
+            if (boxQuantity <= 0)
+                return null;
+
+            return _boxSession.CreateCurrentReport(firmwareName);
+        }
+
         public BoxReport? RegisterFlashedBoard(
             int boxQuantity,
             string serial,

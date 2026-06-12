@@ -18,6 +18,22 @@ namespace FCatFlasher.Models
             return boxQuantity > 0 && CurrentCount >= boxQuantity;
         }
 
+        public BoxReport CreateCurrentReport(string firmwareName)
+        {
+            string serialRanges = FormatSerialRanges();
+
+            return new BoxReport
+            {
+                BoxNumber = BoxNumber,
+                Quantity = CurrentCount,
+                FirmwareName = firmwareName,
+                SerialNumbersText = serialRanges,
+                FirstSerial = serialRanges,
+                LastSerial = serialRanges,
+                CreatedAt = DateTime.Now
+            };
+        }
+
         public BoxReport CreateReport(int quantity, string firmwareName)
         {
             string serialRanges = FormatSerialRanges();
@@ -29,7 +45,8 @@ namespace FCatFlasher.Models
                 FirmwareName = firmwareName,
                 SerialNumbersText = serialRanges,
                 FirstSerial = serialRanges,
-                LastSerial = serialRanges
+                LastSerial = serialRanges,
+                CreatedAt = DateTime.Now
             };
         }
 

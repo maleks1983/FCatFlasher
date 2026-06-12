@@ -5,6 +5,7 @@ namespace FCatFlasher.Services
 {
     internal class SerialService
     {
+        private const int OpenSettleDelayMs = 800;
         private SerialPort? _port;
         private readonly StringBuilder _buffer = new();
 
@@ -26,6 +27,7 @@ namespace FCatFlasher.Services
             };
 
             _port.Open();
+            Thread.Sleep(OpenSettleDelayMs);
             _port.DiscardInBuffer();
             _port.DiscardOutBuffer();
 

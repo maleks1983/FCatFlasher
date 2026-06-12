@@ -15,4 +15,18 @@ namespace FCatFlasher.Helpers
         public void RaiseCanExecuteChanged()
             => CanExecuteChanged?.Invoke(this, EventArgs.Empty);
     }
+
+    internal class RelayCommand<T>(Action<T?> execute, Func<T?, bool>? canExecute = null) : ICommand
+    {
+        public event EventHandler? CanExecuteChanged;
+
+        public bool CanExecute(object? parameter)
+            => canExecute == null || canExecute((T?)parameter);
+
+        public void Execute(object? parameter)
+            => execute((T?)parameter);
+
+        public void RaiseCanExecuteChanged()
+            => CanExecuteChanged?.Invoke(this, EventArgs.Empty);
+    }
 }

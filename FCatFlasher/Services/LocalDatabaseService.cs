@@ -31,7 +31,7 @@ namespace FCatFlasher.Services
             command.CommandText =
                 """
                 CREATE TABLE IF NOT EXISTS cached_users (
-                    user_id INTEGER PRIMARY KEY,
+                    user_id TEXT PRIMARY KEY,
                     username TEXT NOT NULL UNIQUE,
                     full_name TEXT NOT NULL DEFAULT '',
                     password_hash TEXT NOT NULL
@@ -39,7 +39,7 @@ namespace FCatFlasher.Services
 
                 CREATE TABLE IF NOT EXISTS pending_device_registrations (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER NOT NULL,
+                    user_id TEXT NOT NULL,
                     order_id TEXT NOT NULL DEFAULT '',
                     serial_number TEXT NOT NULL,
                     mcu_name TEXT NOT NULL DEFAULT '',
@@ -50,7 +50,7 @@ namespace FCatFlasher.Services
 
                 CREATE TABLE IF NOT EXISTS pending_box_reports (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER NOT NULL,
+                    user_id TEXT NOT NULL,
                     box_number INTEGER NOT NULL,
                     quantity INTEGER NOT NULL,
                     firmware_name TEXT NOT NULL DEFAULT '',
@@ -62,7 +62,7 @@ namespace FCatFlasher.Services
 
                 CREATE TABLE IF NOT EXISTS pending_rework_registrations (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER NOT NULL,
+                    user_id TEXT NOT NULL,
                     order_id TEXT NOT NULL DEFAULT '',
                     serial_number TEXT NOT NULL,
                     firmware_name TEXT NOT NULL DEFAULT '',
@@ -74,6 +74,7 @@ namespace FCatFlasher.Services
                 """;
 
             command.ExecuteNonQuery();
+            EnsureCachedUsersTextId(connection);
             EnsureColumn(connection, "pending_device_registrations", "order_id", "TEXT NOT NULL DEFAULT ''");
             EnsureColumn(connection, "pending_device_registrations", "registration_type", "TEXT NOT NULL DEFAULT 'PRODUCTION'");
             EnsureColumn(connection, "pending_box_reports", "serial_numbers", "TEXT NOT NULL DEFAULT ''");
@@ -129,7 +130,7 @@ namespace FCatFlasher.Services
 
             return new CurrentUser
             {
-                Id = reader.GetInt32(0),
+                Id = reader.GetString(0),
                 Username = reader.GetString(1),
                 FullName = reader.GetString(2),
                 IsOffline = true
@@ -137,7 +138,7 @@ namespace FCatFlasher.Services
         }
 
         public void AddPendingDeviceRegistration(
-            int userId,
+            string userId,
             string orderId,
             string serialNumber,
             string mcuName,
@@ -166,7 +167,7 @@ namespace FCatFlasher.Services
             command.ExecuteNonQuery();
         }
 
-        public void AddPendingBoxReport(int userId, BoxReport report)
+        public void AddPendingBoxReport(string userId, BoxReport report)
         {
             using var connection = OpenConnection();
             using var command = connection.CreateCommand();
@@ -192,7 +193,7 @@ namespace FCatFlasher.Services
         }
 
         public void AddPendingReworkRegistration(
-            int userId,
+            string userId,
             string orderId,
             string serialNumber,
             string firmwareName,
@@ -232,7 +233,7 @@ namespace FCatFlasher.Services
 
             command.CommandText =
                 """
-                SELECT box_number, quantity, firmware_name, serial_numbers, first_serial, last_serial
+                SELECT box_number, quantity, firmware_name, serial_numbers, first_serial, last_serial, created_at_ticks
                 FROM pending_box_reports
                 ORDER BY id;
                 """;
@@ -248,11 +249,99 @@ namespace FCatFlasher.Services
                     FirmwareName = reader.GetString(2),
                     SerialNumbersText = reader.GetString(3),
                     FirstSerial = reader.GetString(4),
-                    LastSerial = reader.GetString(5)
+                    LastSerial = reader.GetString(5),
+                    CreatedAt = new DateTime(reader.GetInt64(6))
                 });
             }
 
             return reports;
+        }
+
+        public IReadOnlyList<ReworkSummary> LoadPendingReworkSummaries()
+        {
+            var summaries = new List<ReworkSummary>();
+
+            using var connection = OpenConnection();
+            using var command = connection.CreateCommand();
+
+            command.CommandText =
+                """
+                SELECT
+                    order_id,
+                    firmware_name,
+                    COUNT(*),
+                    MIN(created_at_ticks),
+                    MAX(created_at_ticks)
+                FROM pending_rework_registrations
+                GROUP BY order_id, firmware_name
+                ORDER BY MAX(created_at_ticks) DESC;
+                """;
+
+            using SqliteDataReader reader = command.ExecuteReader();
+
+            while (reader.Read())
+            {
+                summaries.Add(new ReworkSummary
+                {
+                    OrderId = reader.GetString(0),
+                    FirmwareName = reader.GetString(1),
+                    Quantity = reader.GetInt32(2),
+                    FirstCreatedAt = new DateTime(reader.GetInt64(3)),
+                    LastCreatedAt = new DateTime(reader.GetInt64(4))
+                });
+            }
+
+            return summaries;
+        }
+
+        public ReworkOrderInfo? LoadPendingReworkOrder(string orderId)
+        {
+            if (string.IsNullOrWhiteSpace(orderId))
+                return null;
+
+            using var connection = OpenConnection();
+            using var command = connection.CreateCommand();
+
+            command.CommandText =
+                """
+                SELECT order_id, firmware_name, firmware_path
+                FROM pending_rework_registrations
+                WHERE lower(order_id) = lower($orderId)
+                ORDER BY created_at_ticks DESC
+                LIMIT 1;
+                """;
+
+            command.Parameters.AddWithValue("$orderId", orderId.Trim());
+
+            using SqliteDataReader reader = command.ExecuteReader();
+
+            if (!reader.Read())
+                return null;
+
+            return new ReworkOrderInfo
+            {
+                OrderId = reader.GetString(0),
+                FirmwareName = reader.GetString(1),
+                FirmwarePath = reader.GetString(2)
+            };
+        }
+
+        public void DeletePendingReworks(string orderId, string firmwareName)
+        {
+            using var connection = OpenConnection();
+            using var command = connection.CreateCommand();
+
+            command.CommandText =
+                """
+                DELETE FROM pending_rework_registrations
+                WHERE order_id = $orderId
+                  AND firmware_name = $firmwareName;
+                """;
+
+            command.Parameters.AddWithValue("$orderId", orderId);
+            command.Parameters.AddWithValue("$firmwareName", firmwareName);
+
+            command.ExecuteNonQuery();
         }
 
         public IReadOnlyList<PendingRegistration> LoadPendingRegistrations()
@@ -326,6 +415,23 @@ namespace FCatFlasher.Services
             return Convert.ToInt32(command.ExecuteScalar());
         }
 
+        public int CountPendingReworksFrom(DateTime from)
+        {
+            using var connection = OpenConnection();
+            using var command = connection.CreateCommand();
+
+            command.CommandText =
+                """
+                SELECT COUNT(*)
+                FROM pending_rework_registrations
+                WHERE created_at_ticks >= $fromTicks;
+                """;
+
+            command.Parameters.AddWithValue("$fromTicks", from.Date.Ticks);
+
+            return Convert.ToInt32(command.ExecuteScalar());
+        }
+
         public void SyncPending(ApiService apiService)
         {
             SyncPendingDevices(apiService);
@@ -352,7 +458,7 @@ namespace FCatFlasher.Services
                 int id = reader.GetInt32(0);
 
                 apiService.AddDeviceRegistration(
-                    reader.GetInt32(1),
+                    reader.GetString(1),
                     reader.GetString(2),
                     reader.GetString(3),
                     reader.GetString(4),
@@ -381,7 +487,7 @@ namespace FCatFlasher.Services
                 int id = reader.GetInt32(0);
 
                 apiService.AddBoxReport(
-                    reader.GetInt32(1),
+                    reader.GetString(1),
                     new BoxReport
                     {
                         BoxNumber = reader.GetInt32(2),
@@ -415,7 +521,7 @@ namespace FCatFlasher.Services
                 int id = reader.GetInt32(0);
 
                 apiService.AddReworkRegistration(
-                    reader.GetInt32(1),
+                    reader.GetString(1),
                     reader.GetString(2),
                     reader.GetString(3),
                     reader.GetString(4),
@@ -459,6 +565,49 @@ namespace FCatFlasher.Services
             using var alterCommand = connection.CreateCommand();
             alterCommand.CommandText = $"ALTER TABLE {tableName} ADD COLUMN {columnName} {columnDefinition};";
             alterCommand.ExecuteNonQuery();
+        }
+
+        private static void EnsureCachedUsersTextId(SqliteConnection connection)
+        {
+            using var checkCommand = connection.CreateCommand();
+            checkCommand.CommandText = "PRAGMA table_info(cached_users);";
+
+            using SqliteDataReader reader = checkCommand.ExecuteReader();
+
+            while (reader.Read())
+            {
+                if (!string.Equals(reader.GetString(1), "user_id", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                bool isTextId = string.Equals(reader.GetString(2), "TEXT", StringComparison.OrdinalIgnoreCase);
+
+                if (isTextId)
+                    return;
+
+                break;
+            }
+
+            reader.Close();
+
+            using var migrateCommand = connection.CreateCommand();
+            migrateCommand.CommandText =
+                """
+                ALTER TABLE cached_users RENAME TO cached_users_old;
+
+                CREATE TABLE cached_users (
+                    user_id TEXT PRIMARY KEY,
+                    username TEXT NOT NULL UNIQUE,
+                    full_name TEXT NOT NULL DEFAULT '',
+                    password_hash TEXT NOT NULL
+                );
+
+                INSERT OR IGNORE INTO cached_users (user_id, username, full_name, password_hash)
+                SELECT CAST(user_id AS TEXT), username, full_name, password_hash
+                FROM cached_users_old;
+
+                DROP TABLE cached_users_old;
+                """;
+            migrateCommand.ExecuteNonQuery();
         }
 
         private SqliteConnection OpenConnection()

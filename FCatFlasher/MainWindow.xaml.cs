@@ -27,6 +27,28 @@ namespace FCatFlasher
             LogTextBox.ScrollToEnd();
         }
 
+        private void SerialTextBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (sender is not TextBox textBox ||
+                !string.IsNullOrEmpty(textBox.Text))
+                return;
+
+            textBox.Dispatcher.BeginInvoke(() =>
+            {
+                TextBox? serialTextBox = ProductionSerialTextBox.IsVisible
+                    ? ProductionSerialTextBox
+                    : ReflashSerialTextBox.IsVisible
+                        ? ReflashSerialTextBox
+                        : null;
+
+                if (serialTextBox == null || !serialTextBox.IsEnabled)
+                    return;
+
+                serialTextBox.Focus();
+                serialTextBox.CaretIndex = serialTextBox.Text.Length;
+            });
+        }
+
         private void TabControl_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (sender is not TabControl tabControl)

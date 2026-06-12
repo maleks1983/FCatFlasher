@@ -1,0 +1,21 @@
+namespace FCatFlasher.Models
+{
+    public class LocalDataRow
+    {
+        public string Column1 { get; set; } = string.Empty;
+
+        public string Column2 { get; set; } = string.Empty;
+
+        public string Column3 { get; set; } = string.Empty;
+
+        public string Column4 { get; set; } = string.Empty;
+
+        public string Column5 { get; set; } = string.Empty;
+
+        public string KeyOrderId { get; set; } = string.Empty;
+
+        public string KeyFirmwareName { get; set; } = string.Empty;
+
+        public bool CanDelete { get; set; }
+    }
+}

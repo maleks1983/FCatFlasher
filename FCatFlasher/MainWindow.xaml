@@ -81,12 +81,15 @@
                             <TextBlock Margin="0,0,0,5" Text="Серійний номер" />
 
                             <TextBox
+                                x:Name="ProductionSerialTextBox"
                                 Width="220"
                                 Height="25"
                                 Margin="0,0,0,10"
                                 HorizontalAlignment="Left"
                                 VerticalContentAlignment="Center"
-                                Text="{Binding ScannedSerial, UpdateSourceTrigger=PropertyChanged}" />
+                                IsEnabled="{Binding IsSerialInputEnabled}"
+                                Text="{Binding ScannedSerial, UpdateSourceTrigger=PropertyChanged}"
+                                TextChanged="SerialTextBox_TextChanged" />
 
                             <TextBlock Margin="0,0,0,5" Text="Прошивка" />
 
@@ -175,11 +178,14 @@
                         <TextBlock Margin="0,0,0,5" Text="Серійний номер" />
 
                         <TextBox
+                            x:Name="ReflashSerialTextBox"
                             Width="220"
                             Margin="0,0,0,10"
                             HorizontalAlignment="Left"
                             FontSize="18"
-                            Text="{Binding ScannedSerial, UpdateSourceTrigger=PropertyChanged}" />
+                            IsEnabled="{Binding IsSerialInputEnabled}"
+                            Text="{Binding ScannedSerial, UpdateSourceTrigger=PropertyChanged}"
+                            TextChanged="SerialTextBox_TextChanged" />
 
                         <TextBlock Margin="0,0,0,5" Text="Прошивка G0" />
 
@@ -257,7 +263,7 @@
                                     MinHeight="24"
                                     Padding="4"
                                     Background="#F2F2F2"
-                                    Text="{Binding FirmwareName}" />
+                                    Text="{Binding ReworkFirmwareName}" />
 
                                 <TextBlock Margin="0,16,0,0" Text="{Binding Status, StringFormat=Статус: \{0\}}" />
                             </StackPanel>
@@ -313,76 +319,136 @@
 
                         <Grid
                             Grid.Row="0"
-                            Margin="0,24,0,5"
+                            Margin="0,24,0,0"
+                            MinWidth="585"
                             Background="#E5E5E5">
 
                             <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="75" />
+                                <ColumnDefinition Width="230" />
                                 <ColumnDefinition Width="55" />
-                                <ColumnDefinition Width="85" />
-                                <ColumnDefinition Width="120" />
-                                <ColumnDefinition Width="125" />
-                                <ColumnDefinition Width="35" />
+                                <ColumnDefinition Width="180" />
+                                <ColumnDefinition Width="45" />
                             </Grid.ColumnDefinitions>
 
                             <TextBlock
                                 Grid.Column="0"
-                                Margin="5,0,0,5"
+                                Margin="5,0,0,2"
                                 FontWeight="Bold"
-                                Text="Зам." />
+                                Text="{Binding LocalDataHeader1}" />
 
                             <TextBlock
                                 Grid.Column="1"
                                 FontWeight="Bold"
-                                Text="Серійник" />
+                                Text="{Binding LocalDataHeader2}" />
 
                             <TextBlock
                                 Grid.Column="2"
                                 FontWeight="Bold"
                                 TextTrimming="CharacterEllipsis"
-                                Text="Прошивка" />
+                                Text="{Binding LocalDataHeader3}" />
 
                             <TextBlock
                                 Grid.Column="3"
                                 FontWeight="Bold"
-                                Text="Дата" />
+                                Text="{Binding LocalDataHeader4}" />
 
-                            <TextBlock
-                                Grid.Column="4"
-                                FontWeight="Bold"
-                                Text="МК" />
+                            <TextBlock Grid.Column="4" />
 
                         </Grid>
 
                         <!--  Дані  -->
-                        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                        <ScrollViewer
+                            Grid.Row="1"
+                            HorizontalScrollBarVisibility="Auto"
+                            VerticalScrollBarVisibility="Auto">
 
-                            <ItemsControl ItemsSource="{Binding PendingRegistrations}">
+                            <StackPanel MinWidth="585">
+
+                            <TextBlock
+                                Margin="5,4,0,0"
+                                Foreground="Gray"
+                                Text="{Binding LocalDataEmptyText}"
+                                TextWrapping="Wrap">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                        <Style.Triggers>
+                                            <Trigger Property="Text" Value="">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                            </Trigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+
+                            <ItemsControl
+                                AlternationCount="2"
+                                ItemsSource="{Binding LocalDataRows}">
 
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
 
-                                        <Grid Margin="0,2">
+                                        <Grid Margin="0,1">
+
+                                            <Grid.Style>
+                                                <Style TargetType="Grid">
+                                                    <Setter Property="Background" Value="White" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger
+                                                            Binding="{Binding RelativeSource={RelativeSource AncestorType=ContentPresenter}, Path=(ItemsControl.AlternationIndex)}"
+                                                            Value="1">
+                                                            <Setter Property="Background" Value="#F0F0F0" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Grid.Style>
 
                                             <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="75" />
+                                                <ColumnDefinition Width="230" />
                                                 <ColumnDefinition Width="55" />
-                                                <ColumnDefinition Width="85" />
-                                                <ColumnDefinition Width="120" />
-                                                <ColumnDefinition Width="125" />
-                                                <ColumnDefinition Width="35" />
+                                                <ColumnDefinition Width="180" />
+                                                <ColumnDefinition Width="45" />
                                             </Grid.ColumnDefinitions>
 
-                                            <TextBlock Grid.Column="0" Text="{Binding OrderId}" />
+                                            <TextBlock Grid.Column="0" Text="{Binding Column1}" />
 
-                                            <TextBlock Grid.Column="1" Text="{Binding SerialNumber}" />
+                                            <TextBlock
+                                                Grid.Column="1"
+                                                Text="{Binding Column2}"
+                                                TextWrapping="Wrap" />
 
                                             <TextBlock
                                                 Grid.Column="2"
-                                                Text="{Binding FirmwareName}"
+                                                Text="{Binding Column3}"
                                                 TextTrimming="CharacterEllipsis" />
 
-                                            <TextBlock Grid.Column="3" Text="{Binding CreatedAtText}" />
+                                            <TextBlock
+                                                Grid.Column="3"
+                                                Text="{Binding Column4}"
+                                                TextTrimming="CharacterEllipsis" />
 
-                                            <TextBlock Grid.Column="4" Text="{Binding McuName}" />
+                                            <Button
+                                                Grid.Column="4"
+                                                Width="24"
+                                                Height="20"
+                                                Padding="0"
+                                                HorizontalAlignment="Center"
+                                                Command="{Binding DataContext.DeleteLocalDataRowCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                CommandParameter="{Binding}"
+                                                Content="X">
+                                                <Button.Style>
+                                                    <Style TargetType="Button">
+                                                        <Setter Property="Visibility" Value="Visible" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding CanDelete}" Value="False">
+                                                                <Setter Property="Visibility" Value="Collapsed" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Button.Style>
+                                            </Button>
 
                                         </Grid>
 
@@ -390,6 +456,8 @@
                                 </ItemsControl.ItemTemplate>
 
                             </ItemsControl>
+
+                            </StackPanel>
 
                         </ScrollViewer>
 

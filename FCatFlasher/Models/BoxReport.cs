@@ -14,8 +14,14 @@
 
         public string LastSerial { get; set; } = string.Empty;
 
+        public DateTime CreatedAt { get; set; }
+
         public string SerialRangeText => string.IsNullOrWhiteSpace(SerialNumbersText)
             ? $"{FirstSerial} - {LastSerial}"
             : SerialNumbersText;
+
+        public string CreatedAtText => CreatedAt == default
+            ? string.Empty
+            : CreatedAt.ToString("dd.MM.yyyy HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
     }
 }

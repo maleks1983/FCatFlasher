@@ -28,13 +28,14 @@ namespace FCatFlasher
             }
             catch (Exception ex)
             {
-                ErrorTextBlock.Text = "Не вдалося підключитися до Spring Boot API: " + ex.Message;
+                ErrorTextBlock.Text = "Не вдалося увійти: " + ex.Message;
                 return;
             }
 
             if (CurrentUser == null)
             {
-                ErrorTextBlock.Text = "Невірний телефон або пароль.";
+                ErrorTextBlock.Text = _authenticationService.LastLoginError
+                    ?? "Невірний телефон або пароль.";
                 PasswordBox.Clear();
                 PasswordBox.Focus();
                 return;

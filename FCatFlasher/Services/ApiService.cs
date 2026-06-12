@@ -38,7 +38,7 @@ namespace FCatFlasher.Services
         }
 
         public void AddDeviceRegistration(
-            int userId,
+            string userId,
             string serialNumber,
             string mcuName,
             string firmwareName,
@@ -55,7 +55,7 @@ namespace FCatFlasher.Services
                     Environment.MachineName));
         }
 
-        public void AddBoxReport(int userId, BoxReport report)
+        public void AddBoxReport(string userId, BoxReport report)
         {
             Post(
                 "api/box-reports",
@@ -71,7 +71,7 @@ namespace FCatFlasher.Services
         }
 
         public void AddReworkRegistration(
-            int userId,
+            string userId,
             string orderId,
             string serialNumber,
             string firmwareName,
@@ -180,13 +180,13 @@ namespace FCatFlasher.Services
         private sealed record LoginRequest(string Username, string Password);
 
         private sealed record LoginResponse(
-            int Id,
+            string Id,
             string Username,
             string FullName,
             string? Token);
 
         private sealed record DeviceRegistrationRequest(
-            int UserId,
+            string UserId,
             string SerialNumber,
             string McuName,
             string FirmwareName,
@@ -194,7 +194,7 @@ namespace FCatFlasher.Services
             string StationName);
 
         private sealed record BoxReportRequest(
-            int UserId,
+            string UserId,
             int BoxNumber,
             int Quantity,
             string FirmwareName,
@@ -204,7 +204,7 @@ namespace FCatFlasher.Services
             string StationName);
 
         private sealed record ReworkRegistrationRequest(
-            int UserId,
+            string UserId,
             string OrderId,
             string SerialNumber,
             string FirmwareName,
