@@ -1,10 +1,13 @@
 {
   "SelectedComPort": "COM5",
   "FirmwarePath": "D:\\flesh\\c011_1khv_2sek_serednie_plus_crc.hex",
-  "G0FirmwarePath": "",
-  "C0FirmwarePath": "",
-  "ReworkOrderId": "",
-  "TestFirmwareDirectory": "C:\\Program Files\\STMicroelectronics\\Flash\\Test_New",
+  "FirmwareName": "",
+  "ReworkFirmwareName": "c011_fpv_bez_samoznyshchennia",
+  "BoxQuantity": 0,
+  "G0FirmwarePath": "D:\\flasher\\\u041F\u0440\u043E\u0448\u0438\u0432\u043A\u0438\\NEW_BASE \u0411\u0435\u0437 \u0441\u0430\u043C\u043E\u0437\u043D\u0438\u0449\u0435\u043D\u043D\u044F\\initiator_zvychajna_bez_samoznyshchennya.hex",
+  "C0FirmwarePath": "D:\\flesh\\c011_fpv_bez_samoznyshchennia.hex",
+  "ReworkOrderId": "59001675232466",
+  "TestFirmwareDirectory": "C:\\Program Files\\STMicroelectronics\\Flash\\",
   "StmCubeCliPath": "C:\\Program Files\\STMicroelectronics\\STM32Cube\\STM32CubeProgrammer\\bin\\STM32_Programmer_CLI.exe",
   "ApiBaseUrl": "http://localhost:8080"
 }
