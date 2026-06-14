@@ -16,16 +16,13 @@ namespace FCatFlasher.ViewModels
 {
     internal class MainViewModel : INotifyPropertyChanged
     {
-        private const int BoardRemovedCheckTimeoutMs = 100;
-        private const int BoardRemovedConfirmations = 3;
-        private const int BoardRemovedPollDelayMs = 20;
-        private const int StlinkPollDelayMs = 500;
+        private const int PowerOffBeforeRestartDelayMs = 500;
+        private const int BoardInsertPowerOffDelayMs = 300;
         private const int CapacitorDischargeDelayMs = 200;
         private const int PowerOffModeSwitchDelayMs = 100;
         private const int PowerOnSettleDelayMs = 100;
         private const int UartModeSwitchDelayMs = 300;
         private const int StlinkConnectionCheckTimeoutMs = 1000;
-        private const int StlinkPowerRetryIntervalMs = 3000;
         private const string TestRegistrationType = "TEST";
         private const string ProductionRegistrationType = "PRODUCTION";
         private const string ReworkRegistrationType = "REWORK";
@@ -64,14 +61,12 @@ namespace FCatFlasher.ViewModels
         private WorkMode _workMode = WorkMode.Production;
         private WorkMode _footerMode = WorkMode.TestFirmware;
         private CycleState _cycleState = CycleState.Idle;
-        private DateTime _lastStlinkPowerRetryUtc = DateTime.MinValue;
         private bool _productionBoxActive;
         private int _testedToday;
         private int _flashedToday;
         private int _reflashedToday;
 
         public ICommand OpenSettingsCommand { get; }
-        public ICommand ConnectCommand { get; }
 
         public RelayCommand TestFirmwareCommand { get; }
         public RelayCommand FlashCommand { get; }
@@ -452,8 +447,6 @@ namespace FCatFlasher.ViewModels
             _currentUser = currentUser;
             _testFirmwareService = new TestFirmwareService(_firmwareService);
 
-            ConnectCommand = new RelayCommand(Connect);
-
             TestFirmwareCommand = new RelayCommand(
                 async () =>
                 {
@@ -761,11 +754,6 @@ namespace FCatFlasher.ViewModels
             return ScannedSerial.Trim();
         }
 
-        private void Connect()
-        {
-            EnsureConnected();
-        }
-
         private void StartRunTimer()
         {
             _runStartedAt = DateTime.Now;
@@ -788,7 +776,6 @@ namespace FCatFlasher.ViewModels
         {
             _currentBoardSerial = "";
             IsSerialInputEnabled = true;
-            _lastStlinkPowerRetryUtc = DateTime.MinValue;
 
             _diagnosticsParser.Reset();
 
@@ -861,8 +848,7 @@ namespace FCatFlasher.ViewModels
                     return;
                 }
 
-                await RetryStlinkPowerIfDue();
-                await Task.Delay(StlinkPollDelayMs);
+                await CycleBoardPowerWhileWaiting();
             }
         }
 
@@ -1151,17 +1137,16 @@ namespace FCatFlasher.ViewModels
             await Task.Delay(PowerOnSettleDelayMs);
         }
 
-        private async Task RetryStlinkPowerIfDue()
+        private async Task CycleBoardPowerWhileWaiting()
         {
-            if ((DateTime.UtcNow - _lastStlinkPowerRetryUtc).TotalMilliseconds < StlinkPowerRetryIntervalMs)
+            SendStandCommand("POWER_OFF");
+            await Task.Delay(BoardInsertPowerOffDelayMs);
+
+            if (_cycleState != CycleState.WaitingBoard)
                 return;
 
-            _lastStlinkPowerRetryUtc = DateTime.UtcNow;
-
-            if (_workMode == WorkMode.Production)
-                await PowerOnToStlinkMode();
-            else
-                await PowerCycleToStlinkMode();
+            SendStandCommand("POWER_ON");
+            await Task.Delay(PowerOnSettleDelayMs);
         }
 
         private async Task<bool> EnsureStlinkReady(string context)
@@ -1370,38 +1355,22 @@ namespace FCatFlasher.ViewModels
 
         private async Task WaitBoardRemoved()
         {
-            Status = "Waiting remove";
-            int absentCount = 0;
+            if (_cycleState != CycleState.WaitingRemove)
+                return;
 
-            while (_cycleState == CycleState.WaitingRemove)
+            Status = "Power off";
+            Log += "=== ВИМИКАЄМО ЖИВЛЕННЯ НА 500 МС ===\n";
+
+            SendStandCommand("POWER_OFF");
+            await Task.Delay(PowerOffBeforeRestartDelayMs);
+
+            if (_completedBox != null)
             {
-                bool present = await _firmwareService.CheckConnection(BoardRemovedCheckTimeoutMs);
-
-                if (present)
-                {
-                    absentCount = 0;
-                }
-                else
-                {
-                    absentCount++;
-                }
-
-                if (absentCount >= BoardRemovedConfirmations)
-                {
-                    Log += "=== ПЛАТУ ЗАБРАЛИ ===\n";
-
-                    if (_completedBox != null)
-                    {
-                        await ShowBoxCompletedWindow(_completedBox);
-                        _completedBox = null;
-                    }
-
-                    await PowerOffAndRestartCycle();
-                    return;
-                }
-
-                await Task.Delay(BoardRemovedPollDelayMs);
+                await ShowBoxCompletedWindow(_completedBox);
+                _completedBox = null;
             }
+
+            await PowerOffAndRestartCycle();
         }
 
         private async Task PowerOffAndRestartCycle()
@@ -1409,14 +1378,6 @@ namespace FCatFlasher.ViewModels
             try
             {
                 ResetCycleData();
-
-                Log += "=== ЖИВЛЕННЯ ЗАЛИШЕНО УВІМКНЕНИМ ===\n";
-
-                while (await _firmwareService.CheckConnection(BoardRemovedCheckTimeoutMs))
-                {
-                    Log += ">>> ST-LINK ще бачить плату. Чекаємо...\n";
-                    await Task.Delay(100);
-                }
 
                 Log += "=== ПОЧИНАЄМО НОВИЙ ЦИКЛ ===\n";
 
