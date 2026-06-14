@@ -1,9 +1,9 @@
 {
   "SelectedComPort": "COM5",
-  "FirmwarePath": "D:\\flesh\\c011_1khv_2sek_serednie_plus_crc.hex",
-  "FirmwareName": "",
+  "FirmwarePath": "D:\\flasher\\\u041D\u043E\u0432\u0430 STM\\\u041B\u0456\u0442\u0430\u0447\u043E\u043A 1 \u0445\u0432. (\u0421\u0422\u041C)\\c011_litak_1hv.hex",
+  "FirmwareName": "\u041B 1\u0445\u0432 2\u0445\u0432 \u041F",
   "ReworkFirmwareName": "c011_fpv_bez_samoznyshchennia",
-  "BoxQuantity": 0,
+  "BoxQuantity": 100,
   "G0FirmwarePath": "D:\\flesh\\initiator_fpv_12hod_plus_crc.hex",
   "C0FirmwarePath": "D:\\flesh\\c011_fpv_12hod_plus_crc.hex",
   "ReworkOrderId": "59001671854385",

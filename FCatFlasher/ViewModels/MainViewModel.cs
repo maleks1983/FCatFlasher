@@ -18,10 +18,13 @@ namespace FCatFlasher.ViewModels
     {
         private const int PowerOffBeforeRestartDelayMs = 500;
         private const int BoardInsertPowerOffDelayMs = 300;
-        private const int CapacitorDischargeDelayMs = 200;
+        private const int CapacitorDischargeDelayMs = 100;
         private const int PowerOffModeSwitchDelayMs = 100;
+        private const int UartPowerOffDelayMs = 300;
         private const int PowerOnSettleDelayMs = 100;
-        private const int UartModeSwitchDelayMs = 300;
+        private const int UartModeSwitchDelayMs = 100;
+        private const int StlinkModeSwitchDelayMs = 300;
+        private const int BuzzerOkDelayMs = 200;
         private const int StlinkConnectionCheckTimeoutMs = 1000;
         private const string TestRegistrationType = "TEST";
         private const string ProductionRegistrationType = "PRODUCTION";
@@ -887,7 +890,7 @@ namespace FCatFlasher.ViewModels
                 }
 
                 SendStandCommand("BUZZ_OK");
-                await Task.Delay(100);
+                await Task.Delay(BuzzerOkDelayMs);
 
                 Status = "Test firmware OK";
                 ProgressValue = 100;
@@ -1086,7 +1089,7 @@ namespace FCatFlasher.ViewModels
         private async Task SetStlinkMode()
         {
             SendStandCommand("STLINK_ON");
-            await Task.Delay(300);
+            await Task.Delay(StlinkModeSwitchDelayMs);
         }
 
         private async Task DischargeCapacitor()
@@ -1129,7 +1132,7 @@ namespace FCatFlasher.ViewModels
         private async Task PowerOnToUartMode()
         {
             SendStandCommand("POWER_OFF");
-            await Task.Delay(PowerOffModeSwitchDelayMs);
+            await Task.Delay(UartPowerOffDelayMs);
 
             await SetUartMode();
 
@@ -1312,7 +1315,7 @@ namespace FCatFlasher.ViewModels
                 }
 
                 SendStandCommand("BUZZ_OK");
-                await Task.Delay(50);
+                await Task.Delay(BuzzerOkDelayMs);
 
                 Log += "\n--- FLASH END ---\n";
 
