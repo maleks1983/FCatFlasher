@@ -89,6 +89,7 @@
                                 VerticalContentAlignment="Center"
                                 IsEnabled="{Binding IsSerialInputEnabled}"
                                 Text="{Binding ScannedSerial, UpdateSourceTrigger=PropertyChanged}"
+                                IsEnabledChanged="SerialTextBox_IsEnabledChanged"
                                 TextChanged="SerialTextBox_TextChanged" />
 
                             <TextBlock Margin="0,0,0,5" Text="Прошивка" />
@@ -185,6 +186,7 @@
                             FontSize="18"
                             IsEnabled="{Binding IsSerialInputEnabled}"
                             Text="{Binding ScannedSerial, UpdateSourceTrigger=PropertyChanged}"
+                            IsEnabledChanged="SerialTextBox_IsEnabledChanged"
                             TextChanged="SerialTextBox_TextChanged" />
 
                         <TextBlock Margin="0,0,0,5" Text="Прошивка G0" />

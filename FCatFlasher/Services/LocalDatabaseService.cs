@@ -226,6 +226,16 @@ namespace FCatFlasher.Services
 
         public IReadOnlyList<BoxReport> LoadPendingBoxReports()
         {
+            return LoadPendingBoxReportsFrom(null);
+        }
+
+        public IReadOnlyList<BoxReport> LoadPendingBoxReportsFrom(DateTime from)
+        {
+            return LoadPendingBoxReportsFrom(from.Date.Ticks);
+        }
+
+        private IReadOnlyList<BoxReport> LoadPendingBoxReportsFrom(long? fromTicks)
+        {
             var reports = new List<BoxReport>();
 
             using var connection = OpenConnection();
@@ -235,8 +245,11 @@ namespace FCatFlasher.Services
                 """
                 SELECT box_number, quantity, firmware_name, serial_numbers, first_serial, last_serial, created_at_ticks
                 FROM pending_box_reports
+                WHERE $fromTicks IS NULL OR created_at_ticks >= $fromTicks
                 ORDER BY id;
                 """;
+
+            command.Parameters.AddWithValue("$fromTicks", fromTicks.HasValue ? fromTicks.Value : DBNull.Value);
 
             using SqliteDataReader reader = command.ExecuteReader();
 
@@ -259,6 +272,16 @@ namespace FCatFlasher.Services
 
         public IReadOnlyList<ReworkSummary> LoadPendingReworkSummaries()
         {
+            return LoadPendingReworkSummariesFrom(null);
+        }
+
+        public IReadOnlyList<ReworkSummary> LoadPendingReworkSummariesFrom(DateTime from)
+        {
+            return LoadPendingReworkSummariesFrom(from.Date.Ticks);
+        }
+
+        private IReadOnlyList<ReworkSummary> LoadPendingReworkSummariesFrom(long? fromTicks)
+        {
             var summaries = new List<ReworkSummary>();
 
             using var connection = OpenConnection();
@@ -273,9 +296,12 @@ namespace FCatFlasher.Services
                     MIN(created_at_ticks),
                     MAX(created_at_ticks)
                 FROM pending_rework_registrations
+                WHERE $fromTicks IS NULL OR created_at_ticks >= $fromTicks
                 GROUP BY order_id, firmware_name
                 ORDER BY MAX(created_at_ticks) DESC;
                 """;
+
+            command.Parameters.AddWithValue("$fromTicks", fromTicks.HasValue ? fromTicks.Value : DBNull.Value);
 
             using SqliteDataReader reader = command.ExecuteReader();
 

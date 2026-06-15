@@ -33,7 +33,18 @@ namespace FCatFlasher
                 !string.IsNullOrEmpty(textBox.Text))
                 return;
 
-            textBox.Dispatcher.BeginInvoke(() =>
+            FocusVisibleSerialTextBox();
+        }
+
+        private void SerialTextBox_IsEnabledChanged(object sender, DependencyPropertyChangedEventArgs e)
+        {
+            if (e.NewValue is true)
+                FocusVisibleSerialTextBox();
+        }
+
+        private void FocusVisibleSerialTextBox()
+        {
+            Dispatcher.BeginInvoke(() =>
             {
                 TextBox? serialTextBox = ProductionSerialTextBox.IsVisible
                     ? ProductionSerialTextBox
