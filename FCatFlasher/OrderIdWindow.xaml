@@ -39,7 +39,6 @@
             <TextBox
                 x:Name="FirmwareNameTextBox"
                 Height="32"
-                IsReadOnly="True"
                 VerticalContentAlignment="Center" />
         </StackPanel>
 

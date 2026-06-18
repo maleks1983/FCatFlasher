@@ -1,12 +1,12 @@
 {
   "SelectedComPort": "COM5",
-  "FirmwarePath": "D:\\flasher\\\u041D\u043E\u0432\u0430 STM\\\u041B\u0456\u0442\u0430\u0447\u043E\u043A 1 \u0445\u0432. (\u0421\u0422\u041C)\\c011_litak_1hv.hex",
+  "FirmwarePath": "D:\\flesh\\c011_lit_1hv_5sec_mid_plus_crc.hex",
   "FirmwareName": "\u041B 1\u0445\u0432 2\u0445\u0432 \u041F",
-  "ReworkFirmwareName": "c011_fpv_bez_samoznyshchennia",
+  "ReworkFirmwareName": "\u0411\u0430\u0437\u043E\u0432\u0456 90\u0445\u0432",
   "BoxQuantity": 100,
-  "G0FirmwarePath": "D:\\flasher\\\u041F\u0440\u043E\u0448\u0438\u0432\u043A\u0438\\NEW_BASE \u0411\u0435\u0437 \u0441\u0430\u043C\u043E\u0437\u043D\u0438\u0449\u0435\u043D\u043D\u044F\\initiator_zvychajna_bez_samoznyshchennya.hex",
-  "C0FirmwarePath": "D:\\flasher\\\u041D\u043E\u0432\u0430 STM\\\u0417\u0432\u0438\u0447\u0430\u0439\u043D\u0456 \u0431\u0435\u0437 \u0441\u0430\u043C\u043E\u0437\u043D\u0438\u0449\u0435\u043D\u043D\u044F (\u0421\u0422\u041C)\\c011_fpv_\u0431\u0435\u0437_\u0441\u0430\u043C\u043E\u0437\u043D\u0438\u0449\u0435\u043D\u043D\u044F.hex",
-  "ReworkOrderId": "test",
+  "G0FirmwarePath": "D:\\flasher\\\u0414\u041B\u042F \u0412\u0410\u041B\u0406\u041A\u0410\\\u0417\u0432\u0438\u0447\u0430\u0439\u043D\u0430 90 \u0445\u0432. \u0441\u0430\u043C\u043E\u0437\u043D\u0438\u0449\u0435\u043D\u043D\u044F\\initiator_90hv.hex",
+  "C0FirmwarePath": "D:\\flasher\\\u041D\u043E\u0432\u0430 STM\\\u0417\u0432\u0438\u0447\u0430\u0439\u043D\u0456 90 \u0445\u0432. \u042E\u0432\u0456\u0442\u0435\u043A (\u0421\u0422\u041C)\\c011_fpv_uvitek_90hv.hex",
+  "ReworkOrderId": "59001679110558",
   "TestFirmwareDirectory": "C:\\Program Files\\STMicroelectronics\\Flash\\",
   "StmCubeCliPath": "C:\\Program Files\\STMicroelectronics\\STM32Cube\\STM32CubeProgrammer\\bin\\STM32_Programmer_CLI.exe",
   "ApiBaseUrl": "http://localhost:8080"

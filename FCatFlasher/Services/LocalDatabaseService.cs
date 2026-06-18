@@ -42,6 +42,7 @@ namespace FCatFlasher.Services
                     user_id TEXT NOT NULL,
                     order_id TEXT NOT NULL DEFAULT '',
                     serial_number TEXT NOT NULL,
+                    mcu_id TEXT NOT NULL DEFAULT '',
                     mcu_name TEXT NOT NULL DEFAULT '',
                     firmware_name TEXT NOT NULL DEFAULT '',
                     registration_type TEXT NOT NULL DEFAULT 'PRODUCTION',
@@ -67,6 +68,7 @@ namespace FCatFlasher.Services
                     serial_number TEXT NOT NULL,
                     firmware_name TEXT NOT NULL DEFAULT '',
                     firmware_path TEXT NOT NULL DEFAULT '',
+                    mcu_id TEXT NOT NULL DEFAULT '',
                     mcu_name TEXT NOT NULL DEFAULT '',
                     result TEXT NOT NULL DEFAULT 'OK',
                     created_at_ticks INTEGER NOT NULL
@@ -76,8 +78,11 @@ namespace FCatFlasher.Services
             command.ExecuteNonQuery();
             EnsureCachedUsersTextId(connection);
             EnsureColumn(connection, "pending_device_registrations", "order_id", "TEXT NOT NULL DEFAULT ''");
+            EnsureColumn(connection, "pending_device_registrations", "mcu_id", "TEXT NOT NULL DEFAULT ''");
             EnsureColumn(connection, "pending_device_registrations", "registration_type", "TEXT NOT NULL DEFAULT 'PRODUCTION'");
             EnsureColumn(connection, "pending_box_reports", "serial_numbers", "TEXT NOT NULL DEFAULT ''");
+            EnsureColumn(connection, "pending_rework_registrations", "mcu_id", "TEXT NOT NULL DEFAULT ''");
+            EnsureUniquePendingReworkSerials(connection);
         }
 
         public void CacheUser(CurrentUser user, string password)
@@ -151,14 +156,24 @@ namespace FCatFlasher.Services
             command.CommandText =
                 """
                 INSERT INTO pending_device_registrations
-                    (user_id, order_id, serial_number, mcu_name, firmware_name, registration_type, created_at_ticks)
+                    (user_id, order_id, serial_number, mcu_id, mcu_name, firmware_name, registration_type, created_at_ticks)
                 VALUES
-                    ($userId, $orderId, $serialNumber, $mcuName, $firmwareName, $registrationType, $createdAtTicks);
+                    ($userId, $orderId, $serialNumber, $mcuId, $mcuName, $firmwareName, $registrationType, $createdAtTicks)
+                ON CONFLICT DO UPDATE SET
+                    user_id = excluded.user_id,
+                    order_id = excluded.order_id,
+                    serial_number = excluded.serial_number,
+                    mcu_id = excluded.mcu_id,
+                    mcu_name = excluded.mcu_name,
+                    firmware_name = excluded.firmware_name,
+                    registration_type = excluded.registration_type,
+                    created_at_ticks = excluded.created_at_ticks;
                 """;
 
             command.Parameters.AddWithValue("$userId", userId);
             command.Parameters.AddWithValue("$orderId", orderId);
             command.Parameters.AddWithValue("$serialNumber", serialNumber);
+            command.Parameters.AddWithValue("$mcuId", mcuName);
             command.Parameters.AddWithValue("$mcuName", mcuName);
             command.Parameters.AddWithValue("$firmwareName", firmwareName);
             command.Parameters.AddWithValue("$registrationType", registrationType);
@@ -198,26 +213,38 @@ namespace FCatFlasher.Services
             string serialNumber,
             string firmwareName,
             string firmwarePath,
-            string mcuName,
+            string mcuId,
             string result)
         {
             using var connection = OpenConnection();
             using var command = connection.CreateCommand();
+            string firmwareFileName = GetFileNameFromPath(firmwarePath);
 
             command.CommandText =
                 """
                 INSERT INTO pending_rework_registrations
-                    (user_id, order_id, serial_number, firmware_name, firmware_path, mcu_name, result, created_at_ticks)
+                    (user_id, order_id, serial_number, firmware_name, firmware_path, mcu_id, mcu_name, result, created_at_ticks)
                 VALUES
-                    ($userId, $orderId, $serialNumber, $firmwareName, $firmwarePath, $mcuName, $result, $createdAtTicks);
+                    ($userId, $orderId, $serialNumber, $firmwareName, $firmwarePath, $mcuId, $mcuName, $result, $createdAtTicks)
+                ON CONFLICT DO UPDATE SET
+                    user_id = excluded.user_id,
+                    order_id = excluded.order_id,
+                    serial_number = excluded.serial_number,
+                    firmware_name = excluded.firmware_name,
+                    firmware_path = excluded.firmware_path,
+                    mcu_id = excluded.mcu_id,
+                    mcu_name = excluded.mcu_name,
+                    result = excluded.result,
+                    created_at_ticks = excluded.created_at_ticks;
                 """;
 
             command.Parameters.AddWithValue("$userId", userId);
             command.Parameters.AddWithValue("$orderId", orderId);
             command.Parameters.AddWithValue("$serialNumber", serialNumber);
             command.Parameters.AddWithValue("$firmwareName", firmwareName);
-            command.Parameters.AddWithValue("$firmwarePath", firmwarePath);
-            command.Parameters.AddWithValue("$mcuName", mcuName);
+            command.Parameters.AddWithValue("$firmwarePath", firmwareFileName);
+            command.Parameters.AddWithValue("$mcuId", mcuId);
+            command.Parameters.AddWithValue("$mcuName", mcuId);
             command.Parameters.AddWithValue("$result", result);
             command.Parameters.AddWithValue("$createdAtTicks", DateTime.Now.Ticks);
 
@@ -273,6 +300,91 @@ namespace FCatFlasher.Services
         public IReadOnlyList<ReworkSummary> LoadPendingReworkSummaries()
         {
             return LoadPendingReworkSummariesFrom(null);
+        }
+
+        public IReadOnlyList<FirmwareReportRow> LoadProductionFirmwareReport(DateTime from, DateTime to)
+        {
+            var rows = new List<FirmwareReportRow>();
+            (long fromTicks, long toTicks) = GetInclusiveDateRangeTicks(from, to);
+
+            using var connection = OpenConnection();
+            using var command = connection.CreateCommand();
+
+            command.CommandText =
+                """
+                SELECT
+                    firmware_name,
+                    COUNT(*),
+                    MIN(created_at_ticks),
+                    MAX(created_at_ticks)
+                FROM pending_device_registrations
+                WHERE registration_type = 'PRODUCTION'
+                  AND created_at_ticks >= $fromTicks
+                  AND created_at_ticks < $toTicks
+                GROUP BY firmware_name
+                ORDER BY MAX(created_at_ticks) DESC;
+                """;
+
+            command.Parameters.AddWithValue("$fromTicks", fromTicks);
+            command.Parameters.AddWithValue("$toTicks", toTicks);
+
+            using SqliteDataReader reader = command.ExecuteReader();
+
+            while (reader.Read())
+            {
+                rows.Add(new FirmwareReportRow
+                {
+                    FirmwareName = reader.GetString(0),
+                    Quantity = reader.GetInt32(1),
+                    FirstCreatedAt = new DateTime(reader.GetInt64(2)),
+                    LastCreatedAt = new DateTime(reader.GetInt64(3))
+                });
+            }
+
+            return rows;
+        }
+
+        public IReadOnlyList<FirmwareReportRow> LoadReworkFirmwareReport(DateTime from, DateTime to)
+        {
+            var rows = new List<FirmwareReportRow>();
+            (long fromTicks, long toTicks) = GetInclusiveDateRangeTicks(from, to);
+
+            using var connection = OpenConnection();
+            using var command = connection.CreateCommand();
+
+            command.CommandText =
+                """
+                SELECT
+                    order_id,
+                    firmware_name,
+                    COUNT(*),
+                    MIN(created_at_ticks),
+                    MAX(created_at_ticks)
+                FROM pending_rework_registrations
+                WHERE created_at_ticks >= $fromTicks
+                  AND created_at_ticks < $toTicks
+                GROUP BY order_id, firmware_name
+                ORDER BY MAX(created_at_ticks) DESC;
+                """;
+
+            command.Parameters.AddWithValue("$fromTicks", fromTicks);
+            command.Parameters.AddWithValue("$toTicks", toTicks);
+
+            using SqliteDataReader reader = command.ExecuteReader();
+
+            while (reader.Read())
+            {
+                rows.Add(new FirmwareReportRow
+                {
+                    OrderId = reader.GetString(0),
+                    FirmwareName = reader.GetString(1),
+                    Quantity = reader.GetInt32(2),
+                    FirstCreatedAt = new DateTime(reader.GetInt64(3)),
+                    LastCreatedAt = new DateTime(reader.GetInt64(4))
+                });
+            }
+
+            return rows;
         }
 
         public IReadOnlyList<ReworkSummary> LoadPendingReworkSummariesFrom(DateTime from)
@@ -634,6 +746,97 @@ namespace FCatFlasher.Services
                 DROP TABLE cached_users_old;
                 """;
             migrateCommand.ExecuteNonQuery();
+        }
+
+        private static void EnsureUniquePendingReworkSerials(SqliteConnection connection)
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText =
+                """
+                UPDATE pending_rework_registrations
+                SET mcu_id = mcu_name
+                WHERE mcu_id = ''
+                  AND mcu_name <> '';
+
+                UPDATE pending_device_registrations
+                SET mcu_id = mcu_name
+                WHERE mcu_id = ''
+                  AND mcu_name <> '';
+
+                DELETE FROM pending_rework_registrations
+                WHERE id NOT IN (
+                    SELECT existing.id
+                    FROM pending_rework_registrations existing
+                    WHERE NOT EXISTS (
+                        SELECT 1
+                        FROM pending_rework_registrations newer
+                        WHERE lower(newer.serial_number) = lower(existing.serial_number)
+                          AND (
+                              newer.created_at_ticks > existing.created_at_ticks
+                              OR (
+                                  newer.created_at_ticks = existing.created_at_ticks
+                                  AND newer.id > existing.id
+                              )
+                          )
+                    )
+                );
+
+                DELETE FROM pending_device_registrations
+                WHERE registration_type = 'REWORK'
+                  AND id NOT IN (
+                      SELECT existing.id
+                      FROM pending_device_registrations existing
+                      WHERE existing.registration_type = 'REWORK'
+                        AND NOT EXISTS (
+                            SELECT 1
+                            FROM pending_device_registrations newer
+                            WHERE newer.registration_type = 'REWORK'
+                              AND lower(newer.serial_number) = lower(existing.serial_number)
+                              AND (
+                                  newer.created_at_ticks > existing.created_at_ticks
+                                  OR (
+                                      newer.created_at_ticks = existing.created_at_ticks
+                                      AND newer.id > existing.id
+                                  )
+                              )
+                        )
+                  );
+
+                CREATE UNIQUE INDEX IF NOT EXISTS ux_pending_rework_registrations_serial_number
+                ON pending_rework_registrations (serial_number COLLATE NOCASE);
+
+                CREATE UNIQUE INDEX IF NOT EXISTS ux_pending_device_rework_serial_number
+                ON pending_device_registrations (serial_number COLLATE NOCASE)
+                WHERE registration_type = 'REWORK';
+                """;
+
+            command.ExecuteNonQuery();
+        }
+
+        private static string GetFileNameFromPath(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                return string.Empty;
+
+            string trimmedPath = path.Trim();
+            int slashIndex = trimmedPath.LastIndexOf('/');
+            int backslashIndex = trimmedPath.LastIndexOf('\\');
+            int separatorIndex = Math.Max(slashIndex, backslashIndex);
+
+            return separatorIndex >= 0 && separatorIndex < trimmedPath.Length - 1
+                ? trimmedPath[(separatorIndex + 1)..]
+                : trimmedPath;
+        }
+
+        private static (long FromTicks, long ToTicks) GetInclusiveDateRangeTicks(DateTime from, DateTime to)
+        {
+            DateTime fromDate = from.Date;
+            DateTime toExclusive = to.Date.AddDays(1);
+
+            if (toExclusive <= fromDate)
+                toExclusive = fromDate.AddDays(1);
+
+            return (fromDate.Ticks, toExclusive.Ticks);
         }
 
         private SqliteConnection OpenConnection()

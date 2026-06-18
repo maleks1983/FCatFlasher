@@ -53,6 +53,8 @@ namespace FCatFlasher.ViewModels
         private string _lastConnectionError = "";
         private DateTime _runStartedAt;
         private bool _stlinkSelectedForRun;
+        private bool _skipReflashDiagnosticsReport;
+        private bool _skipFlashRegistration;
 
         private enum WorkMode
         {
@@ -83,6 +85,7 @@ namespace FCatFlasher.ViewModels
         public RelayCommand TestFirmwareCommand { get; }
         public RelayCommand FlashCommand { get; }
         public RelayCommand ReflashCommand { get; }
+        public RelayCommand ReflashTestFirmwareCommand { get; }
 
         public ICommand DeleteLocalDataRowCommand { get; }
         public ICommand RefreshComPortsCommand { get; }
@@ -92,6 +95,8 @@ namespace FCatFlasher.ViewModels
         public ICommand BrowseTestFirmwareDirectoryCommand { get; }
         public ICommand BrowseStmCubeCliCommand { get; }
         public ICommand StopCommand { get; }
+        public ICommand OpenProductionReportCommand { get; }
+        public ICommand OpenReworkReportCommand { get; }
 
         public ObservableCollection<string> ComPorts { get; } = new();
 
@@ -320,6 +325,7 @@ namespace FCatFlasher.ViewModels
                 TestFirmwareCommand.RaiseCanExecuteChanged();
                 FlashCommand.RaiseCanExecuteChanged();
                 ReflashCommand.RaiseCanExecuteChanged();
+                ReflashTestFirmwareCommand.RaiseCanExecuteChanged();
             }
         }
 
@@ -510,6 +516,31 @@ namespace FCatFlasher.ViewModels
                 () => !IsBusy
             );
 
+            ReflashTestFirmwareCommand = new RelayCommand(
+                async () =>
+                {
+                    if (!EnsureConnected())
+                        return;
+
+                    _workMode = WorkMode.Reflash;
+                    _skipReflashDiagnosticsReport = true;
+                    _skipFlashRegistration = true;
+                    _stlinkSelectedForRun = false;
+                    StartRunTimer();
+
+                    try
+                    {
+                        await StartFullCycle();
+                    }
+                    finally
+                    {
+                        _skipReflashDiagnosticsReport = false;
+                        _skipFlashRegistration = false;
+                    }
+                },
+                () => !IsBusy
+            );
+
             DeleteLocalDataRowCommand = new RelayCommand<LocalDataRow>(DeleteLocalDataRow);
             RefreshComPortsCommand = new RelayCommand(RefreshComPorts);
             BrowseFirmwareCommand = new RelayCommand(BrowseFirmware);
@@ -519,6 +550,8 @@ namespace FCatFlasher.ViewModels
             BrowseStmCubeCliCommand = new RelayCommand(BrowseStmCubeCli);
             OpenSettingsCommand = new RelayCommand(OpenSettings);
             StopCommand = new RelayCommand(async () => await StopAll());
+            OpenProductionReportCommand = new RelayCommand(() => OpenReportWindow(isReworkReport: false));
+            OpenReworkReportCommand = new RelayCommand(() => OpenReportWindow(isReworkReport: true));
 
             _runTimer.Tick += (_, _) => UpdateRunElapsed();
             _serial.DataReceived += OnDataReceived;
@@ -535,6 +568,16 @@ namespace FCatFlasher.ViewModels
             var window = new SettingsWindow
             {
                 DataContext = this,
+                Owner = Application.Current.MainWindow
+            };
+
+            window.ShowDialog();
+        }
+
+        private void OpenReportWindow(bool isReworkReport)
+        {
+            var window = new global::FCatFlasher.ReportWindow(_localDatabaseService, isReworkReport)
+            {
                 Owner = Application.Current.MainWindow
             };
 
@@ -1015,6 +1058,13 @@ namespace FCatFlasher.ViewModels
 
                 await Task.Delay(100);
 
+                if (_skipReflashDiagnosticsReport)
+                {
+                    Log += "=== REPORT ПРОПУЩЕНО ===\n";
+                    await StartFlashing();
+                    return;
+                }
+
                 await StartTest();
             }
             catch (Exception ex)
@@ -1396,12 +1446,16 @@ namespace FCatFlasher.ViewModels
                 Status = "Flash OK";
                 ProgressValue = 100;
 
-                RegisterDeviceInDatabase(firmwareToFlash);
+                if (_skipFlashRegistration)
+                    Log += "=== ТЕСТОВА ПЕРЕПРОШИВКА: дані не збережено ===\n";
+                else
+                    RegisterDeviceInDatabase(firmwareToFlash);
 
-                if (_workMode == WorkMode.Production)
+                if (!_skipFlashRegistration && _workMode == WorkMode.Production)
                     _completedBox = RegisterFlashedBoard();
 
-                RegisterUniqueFlashedBoard();
+                if (!_skipFlashRegistration)
+                    RegisterUniqueFlashedBoard();
 
                 Log += "=== ПРОШИВКУ ЗАВЕРШЕНО ===\n";
 
@@ -1748,7 +1802,7 @@ namespace FCatFlasher.ViewModels
 
             if (_currentUser.IsOffline)
             {
-                RegisterDeviceLocally();
+                RegisterDeviceLocally(firmwarePath);
 
                 if (_workMode == WorkMode.Reflash)
                     TryRegisterReworkLocally(firmwarePath);
@@ -1772,7 +1826,7 @@ namespace FCatFlasher.ViewModels
                     GetCurrentOrderIdForLocalRegistration(),
                     GetCurrentBoardSerial(),
                     _currentDeviceType,
-                    GetCurrentFirmwareName(firmwarePath),
+                    GetCurrentLocalFirmwareName(firmwarePath),
                     GetCurrentRegistrationType());
 
                 Log += "API ERROR: " + ex.Message + "\n";
@@ -1823,7 +1877,7 @@ namespace FCatFlasher.ViewModels
             IncrementTodayCounter(TestRegistrationType);
         }
 
-        private void RegisterDeviceLocally()
+        private void RegisterDeviceLocally(string firmwarePath)
         {
             try
             {
@@ -1832,7 +1886,7 @@ namespace FCatFlasher.ViewModels
                     GetCurrentOrderIdForLocalRegistration(),
                     GetCurrentBoardSerial(),
                     _currentDeviceType,
-                    GetCurrentFirmwareName(string.Empty),
+                    GetCurrentLocalFirmwareName(firmwarePath),
                     GetCurrentRegistrationType());
 
                 LoadLocalDataForCurrentTab();
@@ -1869,6 +1923,29 @@ namespace FCatFlasher.ViewModels
             return string.IsNullOrWhiteSpace(firmwareName) && !string.IsNullOrWhiteSpace(firmwarePath)
                 ? System.IO.Path.GetFileNameWithoutExtension(firmwarePath)
                 : firmwareName;
+        }
+
+        private string GetCurrentLocalFirmwareName(string firmwarePath)
+        {
+            if (_workMode == WorkMode.Production && !string.IsNullOrWhiteSpace(firmwarePath))
+                return GetFileNameFromPath(firmwarePath);
+
+            return GetCurrentFirmwareName(firmwarePath);
+        }
+
+        private static string GetFileNameFromPath(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                return string.Empty;
+
+            string trimmedPath = path.Trim();
+            int slashIndex = trimmedPath.LastIndexOf('/');
+            int backslashIndex = trimmedPath.LastIndexOf('\\');
+            int separatorIndex = Math.Max(slashIndex, backslashIndex);
+
+            return separatorIndex >= 0 && separatorIndex < trimmedPath.Length - 1
+                ? trimmedPath[(separatorIndex + 1)..]
+                : trimmedPath;
         }
 
         private void IncrementTodayCounter(string registrationType)

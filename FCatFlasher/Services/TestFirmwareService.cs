@@ -8,7 +8,7 @@ namespace FCatFlasher.Services
         private const string DefaultTestFirmwareDirectory = @"D:\";
         private const string G0TestFirmwareFileName = "test.hex";
         private const string C0TestFirmwareFileName = "c011_factory_test_02_03_2026.hex";
-
+        // private const string C0TestFirmwareFileName = "c011_factory_no_accel_plus_crc.hex";
         public string TestFirmwareDirectory { get; set; } = DefaultTestFirmwareDirectory;
 
         public async Task<string> FlashAutoTestFirmware()

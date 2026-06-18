@@ -27,6 +27,11 @@
                 <MenuItem Header="_Налаштування">
                     <MenuItem Command="{Binding OpenSettingsCommand}" Header="Налаштування" />
                 </MenuItem>
+
+                <MenuItem Header="_Звіти">
+                    <MenuItem Command="{Binding OpenProductionReportCommand}" Header="Звіт прошивка" />
+                    <MenuItem Command="{Binding OpenReworkReportCommand}" Header="Звіт перепрошивка" />
+                </MenuItem>
             </Menu>
         </DockPanel>
 
@@ -228,6 +233,13 @@
                                 Content="Перепрошити" />
 
                             <Button
+                                Width="190"
+                                Height="35"
+                                Margin="0,0,10,0"
+                                Command="{Binding ReflashTestFirmwareCommand}"
+                                Content="Тестова перепрошивка" />
+
+                            <Button
                                 Width="100"
                                 Height="35"
                                 Command="{Binding StopCommand}"
@@ -261,11 +273,10 @@
 
                                 <TextBlock Margin="0,0,0,5" Text="Назва прошивки" />
 
-                                <TextBlock
+                                <TextBox
                                     MinHeight="24"
                                     Padding="4"
-                                    Background="#F2F2F2"
-                                    Text="{Binding ReworkFirmwareName}" />
+                                    Text="{Binding ReworkFirmwareName, UpdateSourceTrigger=PropertyChanged}" />
 
                                 <TextBlock Margin="0,16,0,0" Text="{Binding Status, StringFormat=Статус: \{0\}}" />
                             </StackPanel>
