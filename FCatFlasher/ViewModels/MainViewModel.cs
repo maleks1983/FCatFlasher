@@ -19,13 +19,10 @@ namespace FCatFlasher.ViewModels
     {
         private const int PowerOffBeforeRestartDelayMs = 1000;
         private const int BoardInsertPowerOffDelayMs = 300;
-        private const int CapacitorDischargeDelayMs = 200;
         private const int StandCommandSettleDelayMs = 200;
-        private const int PowerOffModeSwitchDelayMs = 100;
         private const int UartPowerOffDelayMs = 200;
         private const int PowerOnSettleDelayMs = 200;
         private const int UartPowerOnSettleDelayMs = 100;
-        private const int BoardWaitRetryDelayMs = 300;
         private const int UartModeSwitchDelayMs = 200;
         private const int StlinkModeSwitchDelayMs = 300;
         private const int StlinkAfterTestModeSwitchDelayMs = 200;
@@ -1274,12 +1271,6 @@ namespace FCatFlasher.ViewModels
             if (!powerAlreadyOn)
                 await SendStandCommand("POWER_ON", powerOnDelayMs);
         }
-
-        private async Task DischargeCapacitor()
-        {
-            await SendStandCommand("POWER_OFF", CapacitorDischargeDelayMs);
-        }
-
         private async Task PowerCycleToStlinkMode()
         {
             await SetStlinkModeAndEnsurePowerOn();
@@ -1290,15 +1281,6 @@ namespace FCatFlasher.ViewModels
             await SetStlinkModeAndEnsurePowerOn();
         }
 
-        private async Task PowerCycleToUartMode()
-        {
-            await SetUartModeAndEnsurePowerOn();
-        }
-
-        private async Task PowerOnToUartMode()
-        {
-            await SetUartModeAndEnsurePowerOn();
-        }
         private async Task CycleBoardPowerWhileWaiting()
         {
             await SendStandCommand("POWER_OFF", BoardInsertPowerOffDelayMs);
