@@ -53,6 +53,7 @@ namespace FCatFlasher.ViewModels
         private string _lastConnectionError = "";
         private DateTime _runStartedAt;
         private bool _stlinkSelectedForRun;
+        private bool _standPowerOn;
         private bool _skipReflashDiagnosticsReport;
         private bool _skipFlashRegistration;
 
@@ -940,7 +941,6 @@ namespace FCatFlasher.ViewModels
             {
                 _cycleState = CycleState.Flashing;
 
-                await PowerCycleToStlinkMode();
                 if (!await EnsureStlinkReady("test firmware"))
                 {
                     _cycleState = CycleState.WaitingRemove;
@@ -1216,6 +1216,8 @@ namespace FCatFlasher.ViewModels
                     Log += $">>> {command}\n";
 
                 _serial.Send(command);
+                UpdateStandPowerState(command);
+
                 int delayMs = enforceMinimumDelay
                     ? Math.Max(settleDelayMs, StandCommandSettleDelayMs)
                     : settleDelayMs;
@@ -1233,14 +1235,44 @@ namespace FCatFlasher.ViewModels
             return command is "POWER_ON" or "POWER_OFF";
         }
 
-        private async Task SetUartMode()
+        private void UpdateStandPowerState(string command)
         {
-            await SendStandCommand("UART_ON", UartModeSwitchDelayMs);
+            if (command == "POWER_ON")
+                _standPowerOn = true;
+            else if (command == "POWER_OFF")
+                _standPowerOn = false;
         }
 
-        private async Task SetStlinkMode()
+        private async Task SetUartMode(int settleDelayMs = UartModeSwitchDelayMs)
         {
-            await SendStandCommand("STLINK_ON", StlinkModeSwitchDelayMs);
+            await SendStandCommand("UART_ON", settleDelayMs);
+        }
+
+        private async Task SetStlinkMode(int settleDelayMs = StlinkModeSwitchDelayMs)
+        {
+            await SendStandCommand("STLINK_ON", settleDelayMs);
+        }
+
+        private async Task SetUartModeAndEnsurePowerOn(
+            int modeSwitchDelayMs = UartModeSwitchDelayMs,
+            int powerOnDelayMs = PowerOnSettleDelayMs)
+        {
+            bool powerAlreadyOn = _standPowerOn;
+            await SetUartMode(modeSwitchDelayMs);
+
+            if (!powerAlreadyOn)
+                await SendStandCommand("POWER_ON", powerOnDelayMs);
+        }
+
+        private async Task SetStlinkModeAndEnsurePowerOn(
+            int modeSwitchDelayMs = StlinkModeSwitchDelayMs,
+            int powerOnDelayMs = UartPowerOnSettleDelayMs)
+        {
+            bool powerAlreadyOn = _standPowerOn;
+            await SetStlinkMode(modeSwitchDelayMs);
+
+            if (!powerAlreadyOn)
+                await SendStandCommand("POWER_ON", powerOnDelayMs);
         }
 
         private async Task DischargeCapacitor()
@@ -1250,40 +1282,23 @@ namespace FCatFlasher.ViewModels
 
         private async Task PowerCycleToStlinkMode()
         {
-            await DischargeCapacitor();
-
-            await SetStlinkMode();
-
-            await SendStandCommand("POWER_ON", UartPowerOnSettleDelayMs);
+            await SetStlinkModeAndEnsurePowerOn();
         }
 
         private async Task PowerOnToStlinkMode()
         {
-            await SendStandCommand("POWER_OFF", PowerOffModeSwitchDelayMs);
-
-            await SetStlinkMode();
-
-            await SendStandCommand("POWER_ON", UartPowerOnSettleDelayMs);
+            await SetStlinkModeAndEnsurePowerOn();
         }
 
         private async Task PowerCycleToUartMode()
         {
-            await SendStandCommand("POWER_OFF", UartPowerOffDelayMs);
-
-            await SetUartMode();
-
-            await SendStandCommand("POWER_ON", PowerOnSettleDelayMs);
+            await SetUartModeAndEnsurePowerOn();
         }
 
         private async Task PowerOnToUartMode()
         {
-            await SendStandCommand("POWER_OFF", UartPowerOffDelayMs);
-
-            await SetUartMode();
-
-            await SendStandCommand("POWER_ON", PowerOnSettleDelayMs);
+            await SetUartModeAndEnsurePowerOn();
         }
-
         private async Task CycleBoardPowerWhileWaiting()
         {
             await SendStandCommand("POWER_OFF", BoardInsertPowerOffDelayMs);
@@ -1322,11 +1337,7 @@ namespace FCatFlasher.ViewModels
             IsSerialInputEnabled = true;
 
             _diagnosticsParser.Reset();
-
-            await SendStandCommand("POWER_OFF", UartPowerOffDelayMs);
-            await SetUartMode();
-            await SendStandCommand("PWM_START", StandCommandSettleDelayMs);
-            await SendStandCommand("POWER_ON", PowerOnSettleDelayMs);
+            await SetUartModeAndEnsurePowerOn();
 
             Status = "Testing";
             ProgressValue = 60;
@@ -1337,8 +1348,7 @@ namespace FCatFlasher.ViewModels
         {
             _cycleState = CycleState.WaitingRemove;
 
-            await SendStandCommand("PWM_STOP", 50);
-
+            await SendStandCommand("POWER_OFF", UartPowerOffDelayMs);
             await SetStlinkMode();
             await Task.Delay(100);
 
@@ -1348,11 +1358,9 @@ namespace FCatFlasher.ViewModels
         private async Task StopTestAndFlash()
         {
             _cycleState = CycleState.Flashing;
-
-            await SendStandCommand("POWER_OFF", StandCommandSettleDelayMs);
-            await SendStandCommand("PWM_STOP", StandCommandSettleDelayMs);
-            await SendStandCommand("STLINK_ON", StlinkAfterTestModeSwitchDelayMs);
-            await SendStandCommand("POWER_ON", PowerOnSettleDelayMs);
+            await SetStlinkModeAndEnsurePowerOn(
+                StlinkAfterTestModeSwitchDelayMs,
+                PowerOnSettleDelayMs);
 
             await StartFlashing();
         }
@@ -1536,8 +1544,7 @@ namespace FCatFlasher.ViewModels
             {
                 _cycleState = CycleState.Idle;
 
-                await SendStandCommand("PWM_STOP", 50);
-
+                await SendStandCommand("PWM_STOP", StandCommandSettleDelayMs);
                 await SendStandCommand("POWER_OFF", 100);
 
                 StopRunTimer();

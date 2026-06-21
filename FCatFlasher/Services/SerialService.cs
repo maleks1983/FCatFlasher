@@ -18,12 +18,12 @@ namespace FCatFlasher.Services
 
             _port = new SerialPort(portName, baud)
             {
-                NewLine = "\r\n",           // краще для сумісності
+                NewLine = "\n",
                 Encoding = Encoding.ASCII,
                 ReadTimeout = 1000,
                 WriteTimeout = 1000,
-                DtrEnable = true,
-                RtsEnable = true
+                DtrEnable = false,
+                RtsEnable = false
             };
 
             _port.Open();
@@ -43,12 +43,12 @@ namespace FCatFlasher.Services
 
                 while (true)
                 {
-                    int index = IndexOfNewLine(_buffer);
-                    if (index == -1)
+                    (int index, int length) = IndexOfLineEnding(_buffer);
+                    if (index < 0)
                         break;
 
                     string line = _buffer.ToString(0, index).Trim();
-                    _buffer.Remove(0, index + 1);
+                    _buffer.Remove(0, index + length);
 
                     if (!string.IsNullOrWhiteSpace(line))
                     {
@@ -62,15 +62,26 @@ namespace FCatFlasher.Services
             }
         }
 
-        private static int IndexOfNewLine(StringBuilder buffer)
+        private static (int Index, int Length) IndexOfLineEnding(StringBuilder buffer)
         {
             for (int i = 0; i < buffer.Length; i++)
             {
-                if (buffer[i] == '\n')
-                    return i;
+                if (buffer[i] != '\r' && buffer[i] != '\n')
+                    continue;
+
+                int length = 1;
+
+                if (buffer[i] == '\r' &&
+                    i + 1 < buffer.Length &&
+                    buffer[i + 1] == '\n')
+                {
+                    length = 2;
+                }
+
+                return (i, length);
             }
 
-            return -1;
+            return (-1, 0);
         }
 
         public void Send(string command)
