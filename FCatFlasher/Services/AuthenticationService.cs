@@ -7,10 +7,12 @@ namespace FCatFlasher.Services
         LocalDatabaseService localDatabaseService)
     {
         public string? LastLoginError { get; private set; }
+        public string? LastSyncError { get; private set; }
 
         public CurrentUser? Login(string username, string password)
         {
             LastLoginError = null;
+            LastSyncError = null;
 
             try
             {
@@ -20,7 +22,15 @@ namespace FCatFlasher.Services
                     return null;
 
                 localDatabaseService.CacheUser(user, password);
-                localDatabaseService.SyncPending(apiService);
+
+                try
+                {
+                    localDatabaseService.SyncPending(apiService);
+                }
+                catch (Exception ex)
+                {
+                    LastSyncError = "Не вдалося синхронізувати локальні дані: " + ex.Message;
+                }
 
                 return user;
             }

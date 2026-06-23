@@ -18,7 +18,8 @@ namespace FCatFlasher.ViewModels
     internal class MainViewModel : INotifyPropertyChanged
     {
         private const int PowerOffBeforeRestartDelayMs = 1000;
-        private const int BoardInsertPowerOffDelayMs = 300;
+        private const int BoardInsertPowerOffDelayMs = 400;
+        private const int BoardInsertPowerOnDelayMs = 100;
         private const int StandCommandSettleDelayMs = 200;
         private const int UartPowerOffDelayMs = 200;
         private const int PowerOnSettleDelayMs = 200;
@@ -79,6 +80,7 @@ namespace FCatFlasher.ViewModels
         private int _reflashedToday;
 
         public ICommand OpenSettingsCommand { get; }
+        public ICommand SyncPendingCommand { get; }
 
         public RelayCommand TestFirmwareCommand { get; }
         public RelayCommand FlashCommand { get; }
@@ -547,6 +549,7 @@ namespace FCatFlasher.ViewModels
             BrowseTestFirmwareDirectoryCommand = new RelayCommand(BrowseTestFirmwareDirectory);
             BrowseStmCubeCliCommand = new RelayCommand(BrowseStmCubeCli);
             OpenSettingsCommand = new RelayCommand(OpenSettings);
+            SyncPendingCommand = new RelayCommand(SyncPendingData, () => !IsBusy);
             StopCommand = new RelayCommand(async () => await StopAll());
             OpenProductionReportCommand = new RelayCommand(() => OpenReportWindow(isReworkReport: false));
             OpenReworkReportCommand = new RelayCommand(() => OpenReportWindow(isReworkReport: true));
@@ -570,6 +573,28 @@ namespace FCatFlasher.ViewModels
             };
 
             window.ShowDialog();
+        }
+
+        private void SyncPendingData()
+        {
+            if (_currentUser.IsOffline)
+            {
+                Log += "SYNC ERROR: користувач увійшов offline. Увійдіть через API і повторіть синхронізацію.\n";
+                return;
+            }
+
+            try
+            {
+                _localDatabaseService.SyncPending(_apiService);
+                LoadApiData();
+                LoadLocalDataForCurrentTab();
+                Log += "=== SYNC: локальні дані синхронізовано з основною базою ===\n";
+            }
+            catch (Exception ex)
+            {
+                LoadLocalDataForCurrentTab();
+                Log += "SYNC ERROR: " + ex.Message + "\n";
+            }
         }
 
         private void OpenReportWindow(bool isReworkReport)
@@ -891,6 +916,11 @@ namespace FCatFlasher.ViewModels
 
             while (_cycleState == CycleState.WaitingBoard)
             {
+                await CycleBoardPowerWhileWaiting();
+
+                if (_cycleState != CycleState.WaitingBoard)
+                    return;
+
                 bool present = await _firmwareService.CheckConnection();
 
                 if (present)
@@ -917,7 +947,6 @@ namespace FCatFlasher.ViewModels
 
                 LogConnectionErrorIfChanged();
 
-                await CycleBoardPowerWhileWaiting();
             }
         }
 
@@ -1254,11 +1283,9 @@ namespace FCatFlasher.ViewModels
             int modeSwitchDelayMs = UartModeSwitchDelayMs,
             int powerOnDelayMs = PowerOnSettleDelayMs)
         {
-            bool powerAlreadyOn = _standPowerOn;
+            await SendStandCommand("POWER_OFF", UartPowerOffDelayMs);
             await SetUartMode(modeSwitchDelayMs);
-
-            if (!powerAlreadyOn)
-                await SendStandCommand("POWER_ON", powerOnDelayMs);
+            await SendStandCommand("POWER_ON", powerOnDelayMs);
         }
 
         private async Task SetStlinkModeAndEnsurePowerOn(
@@ -1273,7 +1300,10 @@ namespace FCatFlasher.ViewModels
         }
         private async Task PowerCycleToStlinkMode()
         {
-            await SetStlinkModeAndEnsurePowerOn();
+            await SendStandCommand("POWER_OFF", UartPowerOffDelayMs);
+            await SetStlinkModeAndEnsurePowerOn(
+                StlinkModeSwitchDelayMs,
+                PowerOnSettleDelayMs);
         }
 
         private async Task PowerOnToStlinkMode()
@@ -1288,7 +1318,7 @@ namespace FCatFlasher.ViewModels
             if (_cycleState != CycleState.WaitingBoard)
                 return;
 
-            await SendStandCommand("POWER_ON", PowerOnSettleDelayMs);
+            await SendStandCommand("POWER_ON", BoardInsertPowerOnDelayMs, enforceMinimumDelay: false);
         }
 
         private async Task<bool> EnsureStlinkReady(string context)
@@ -1340,9 +1370,13 @@ namespace FCatFlasher.ViewModels
         private async Task StopTestAndFlash()
         {
             _cycleState = CycleState.Flashing;
+            await SendStandCommand("POWER_OFF", UartPowerOffDelayMs);
             await SetStlinkModeAndEnsurePowerOn(
                 StlinkAfterTestModeSwitchDelayMs,
                 PowerOnSettleDelayMs);
+
+            if (!await EnsureStlinkReady("production firmware"))
+                return;
 
             await StartFlashing();
         }

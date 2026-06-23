@@ -324,11 +324,23 @@
                             </Grid.RowDefinitions>
 
                         <!--  Заголовок  -->
-                        <TextBlock
+                        <DockPanel
                             Grid.Row="0"
-                            Margin="0,0,0,6"
-                            FontWeight="Bold"
-                            Text="Локальні дані" />
+                            Margin="0,0,0,6">
+
+                            <Button
+                                DockPanel.Dock="Right"
+                                Width="125"
+                                Height="24"
+                                Command="{Binding SyncPendingCommand}"
+                                Content="Синхронізувати" />
+
+                            <TextBlock
+                                VerticalAlignment="Center"
+                                FontWeight="Bold"
+                                Text="Локальні дані" />
+
+                        </DockPanel>
 
                         <Grid
                             Grid.Row="0"
