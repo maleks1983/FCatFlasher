@@ -1,6 +1,7 @@
 ﻿using FCatFlasher.Helpers;
 using FCatFlasher.Models;
 using FCatFlasher.Services;
+using FCatFlasher.Services.Workflows;
 using Microsoft.Win32;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
@@ -26,7 +27,6 @@ namespace FCatFlasher.ViewModels
         private const int UartPowerOnSettleDelayMs = 100;
         private const int UartModeSwitchDelayMs = 200;
         private const int StlinkModeSwitchDelayMs = 300;
-        private const int StlinkAfterTestModeSwitchDelayMs = 200;
         private const int BuzzerOkDelayMs = 200;
         private const int CycleErrorDelayMs = 2000;
         private const int StlinkConnectionCheckTimeoutMs = 1000;
@@ -44,6 +44,9 @@ namespace FCatFlasher.ViewModels
         private readonly DiagnosticsParser _diagnosticsParser = new();
         private readonly BoxTrackingService _boxTracking = new();
         private readonly UniqueBoardCounter _uniqueBoardCounter = new();
+        private readonly ProductionFlashWorkflow _productionFlashWorkflow;
+        private readonly ReflashWorkflow _reflashWorkflow;
+        private readonly TestFirmwareWorkflow _testFirmwareWorkflow;
         private readonly SemaphoreSlim _standCommandLock = new(1, 1);
         private readonly DispatcherTimer _runTimer = new() { Interval = TimeSpan.FromSeconds(1) };
         private bool _settingsLoaded;
@@ -464,6 +467,32 @@ namespace FCatFlasher.ViewModels
             _localDatabaseService = localDatabaseService;
             _currentUser = currentUser;
             _testFirmwareService = new TestFirmwareService(_firmwareService);
+            _productionFlashWorkflow = new ProductionFlashWorkflow(
+                SendStandCommand,
+                SetStlinkMode,
+                StartProductionFlashing);
+            _reflashWorkflow = new ReflashWorkflow(
+                SendStandCommand,
+                SetStlinkModeAndEnsurePowerOn,
+                EnsureStlinkReady,
+                StartReflashFlashing);
+            _testFirmwareWorkflow = new TestFirmwareWorkflow(
+                () => _cycleState = CycleState.Flashing,
+                () => _cycleState = CycleState.WaitingRemove,
+                value => Status = value,
+                value => ProgressValue = value,
+                value => Log += value,
+                value => _currentDeviceType = value,
+                EnsureStlinkReady,
+                GetDeviceTypeWithRetry,
+                IsKnownDeviceType,
+                FlashAutoTestFirmwareWithRetry,
+                TestFirmwareFailed,
+                SendStandCommand,
+                ShowTestErrorDialog,
+                RegisterDeviceInDatabase,
+                WaitBoardRemoved,
+                WaitBoardRemovedAfterError);
 
             TestFirmwareCommand = new RelayCommand(
                 async () =>
@@ -883,22 +912,7 @@ namespace FCatFlasher.ViewModels
 
                 Log += "\n--- WAIT BOARD ---\n";
 
-                if (_workMode == WorkMode.Production)
-                {
-                    Log += "=== PRODUCTION: стартуємо з UART без попереднього ST-LINK ===\n";
-                    await StartTest();
-                    return;
-                }
-
-                if (_stlinkSelectedForRun)
-                    await SendStandCommand("POWER_ON", PowerOnSettleDelayMs);
-                else
-                {
-                    await PowerCycleToStlinkMode();
-                    _stlinkSelectedForRun = true;
-                }
-
-                await WaitBoardInserted();
+                await StartModeCycle();
             }
             catch (Exception ex)
             {
@@ -908,6 +922,36 @@ namespace FCatFlasher.ViewModels
                 IsBusy = false;
                 _cycleState = CycleState.Idle;
             }
+        }
+
+        private async Task StartModeCycle()
+        {
+            if (_workMode == WorkMode.Production)
+            {
+                await StartProductionCycle();
+                return;
+            }
+
+            await StartStlinkBoardDetectionCycle();
+        }
+
+        private async Task StartProductionCycle()
+        {
+            Log += "=== PRODUCTION: стартуємо з UART без попереднього ST-LINK ===\n";
+            await StartTest();
+        }
+
+        private async Task StartStlinkBoardDetectionCycle()
+        {
+            if (_stlinkSelectedForRun)
+                await SendStandCommand("POWER_ON", PowerOnSettleDelayMs);
+            else
+            {
+                await PowerCycleToStlinkMode();
+                _stlinkSelectedForRun = true;
+            }
+
+            await WaitBoardInserted();
         }
 
         private async Task WaitBoardInserted()
@@ -963,78 +1007,7 @@ namespace FCatFlasher.ViewModels
 
         private async Task FlashOnlyTestFirmware()
         {
-            try
-            {
-                _cycleState = CycleState.Flashing;
-
-                if (!await EnsureStlinkReady("test firmware"))
-                {
-                    _cycleState = CycleState.WaitingRemove;
-                    await WaitBoardRemovedAfterError();
-                    return;
-                }
-
-                Status = "Flashing test firmware";
-                ProgressValue = 50;
-                Log += "=== ТЕСТОВА ПРОШИВКА ===\n";
-
-                _currentDeviceType = await GetDeviceTypeWithRetry("test firmware");
-
-                if (!IsKnownDeviceType(_currentDeviceType))
-                {
-                    Status = "MCU Error";
-                    ProgressValue = 100;
-                    Log += $"ERROR: MCU not detected: {_currentDeviceType}\n";
-                    Log += ">>> Заберіть плату зі стенда...\n";
-
-                    _cycleState = CycleState.WaitingRemove;
-
-                    await WaitBoardRemovedAfterError();
-                    return;
-                }
-
-                Log += $"MCU: {_currentDeviceType}\n";
-
-                string result = await FlashAutoTestFirmwareWithRetry(_currentDeviceType);
-
-                if (TestFirmwareFailed(result))
-                {
-                    Status = "Test firmware error";
-                    ProgressValue = 100;
-                    Log += "=== ТЕСТОВУ ПРОШИВКУ НЕ ЗАЛИТО ===\n";
-                    Log += ">>> Заберіть плату зі стенда...\n";
-                    ShowTestErrorDialog("Помилка тестової прошивки", result);
-
-                    _cycleState = CycleState.WaitingRemove;
-
-                    await WaitBoardRemovedAfterError();
-                    return;
-                }
-
-                await SendStandCommand("BUZZ_OK", BuzzerOkDelayMs);
-
-                Status = "Test firmware OK";
-                ProgressValue = 100;
-
-                RegisterDeviceInDatabase("");
-
-                Log += "\n=== ТЕСТОВУ ПРОШИВКУ ЗАВЕРШЕНО ===\n";
-
-                Log += ">>> Заберіть плату зі стенда...\n";
-
-                _cycleState = CycleState.WaitingRemove;
-
-                await WaitBoardRemoved();
-            }
-            catch (Exception ex)
-            {
-                Status = "Error";
-                Log += "ERROR: " + ex.Message + "\n";
-
-                _cycleState = CycleState.WaitingRemove;
-
-                await WaitBoardRemovedAfterError();
-            }
+            await _testFirmwareWorkflow.FlashOnlyTestFirmware();
         }
 
         private async Task PrepareReflashWithTestFirmware()
@@ -1087,7 +1060,7 @@ namespace FCatFlasher.ViewModels
                 if (_skipReflashDiagnosticsReport)
                 {
                     Log += "=== REPORT ПРОПУЩЕНО ===\n";
-                    await StartFlashing();
+                    await StartReflashFlashing();
                     return;
                 }
 
@@ -1194,7 +1167,7 @@ namespace FCatFlasher.ViewModels
                         ProgressValue = 70;
                         Log += "=== ТЕСТ ПРОЙДЕНО ===\n";
 
-                        await StopTestAndFlash();
+                        await StopSuccessfulTestAndFlash();
                         return;
                     }
 
@@ -1367,21 +1340,60 @@ namespace FCatFlasher.ViewModels
             await WaitBoardRemovedAfterError();
         }
 
-        private async Task StopTestAndFlash()
+        private async Task StopSuccessfulTestAndFlash()
         {
-            _cycleState = CycleState.Flashing;
-            await SendStandCommand("POWER_OFF", UartPowerOffDelayMs);
-            await SetStlinkModeAndEnsurePowerOn(
-                StlinkAfterTestModeSwitchDelayMs,
-                PowerOnSettleDelayMs);
-
-            if (!await EnsureStlinkReady("production firmware"))
+            if (_workMode == WorkMode.Production)
+            {
+                await StopProductionTestAndFlash();
                 return;
+            }
 
-            await StartFlashing();
+            if (_workMode == WorkMode.Reflash)
+            {
+                await StopReflashTestAndFlash();
+                return;
+            }
+
+            Log += "ERROR: Wrong mode after successful test\n";
+            await StopAll();
         }
 
-        private async Task StartFlashing()
+        private async Task StopProductionTestAndFlash()
+        {
+            _cycleState = CycleState.Flashing;
+            await _productionFlashWorkflow.FlashAfterSuccessfulTest();
+        }
+
+        private async Task StopReflashTestAndFlash()
+        {
+            _cycleState = CycleState.Flashing;
+            await _reflashWorkflow.FlashAfterSuccessfulTest();
+        }
+
+        private async Task StartProductionFlashing()
+        {
+            await StartFlashing(FirmwarePath);
+        }
+
+        private async Task StartReflashFlashing()
+        {
+            string firmwareToFlash;
+
+            if (_currentDeviceType == "G0")
+                firmwareToFlash = G0FirmwarePath;
+            else if (_currentDeviceType == "C0")
+                firmwareToFlash = C0FirmwarePath;
+            else
+            {
+                Log += "ERROR: Unknown MCU for reflash\n";
+                await StopAll();
+                return;
+            }
+
+            await StartFlashing(firmwareToFlash);
+        }
+
+        private async Task StartFlashing(string firmwareToFlash)
         {
             try
             {
@@ -1392,32 +1404,6 @@ namespace FCatFlasher.ViewModels
                 Status = "Flashing";
                 ProgressValue = 90;
                 Log += "--- FLASH START ---\n";
-
-                string firmwareToFlash;
-
-                if (_workMode == WorkMode.Production)
-                {
-                    firmwareToFlash = FirmwarePath;
-                }
-                else if (_workMode == WorkMode.Reflash)
-                {
-                    if (_currentDeviceType == "G0")
-                        firmwareToFlash = G0FirmwarePath;
-                    else if (_currentDeviceType == "C0")
-                        firmwareToFlash = C0FirmwarePath;
-                    else
-                    {
-                        Log += "ERROR: Unknown MCU for reflash\n";
-                        await StopAll();
-                        return;
-                    }
-                }
-                else
-                {
-                    Log += "ERROR: Wrong mode for StartFlashing\n";
-                    await StopAll();
-                    return;
-                }
 
                 if ((_workMode == WorkMode.Production || _workMode == WorkMode.Reflash) &&
                     _currentDeviceType == "C0" &&
