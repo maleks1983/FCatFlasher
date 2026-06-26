@@ -146,6 +146,7 @@ namespace FCatFlasher.Services
             string userId,
             string orderId,
             string serialNumber,
+            string mcuId,
             string mcuName,
             string firmwareName,
             string registrationType)
@@ -173,8 +174,10 @@ namespace FCatFlasher.Services
             command.Parameters.AddWithValue("$userId", userId);
             command.Parameters.AddWithValue("$orderId", orderId);
             command.Parameters.AddWithValue("$serialNumber", serialNumber);
-            command.Parameters.AddWithValue("$mcuId", mcuName);
-            command.Parameters.AddWithValue("$mcuName", mcuName);
+            string normalizedMcuName = NormalizeMcuName(mcuName);
+            string normalizedMcuId = NormalizeMcuName(mcuId);
+            command.Parameters.AddWithValue("$mcuId", normalizedMcuId);
+            command.Parameters.AddWithValue("$mcuName", normalizedMcuName);
             command.Parameters.AddWithValue("$firmwareName", firmwareName);
             command.Parameters.AddWithValue("$registrationType", registrationType);
             command.Parameters.AddWithValue("$createdAtTicks", DateTime.Now.Ticks);
@@ -214,6 +217,7 @@ namespace FCatFlasher.Services
             string firmwareName,
             string firmwarePath,
             string mcuId,
+            string mcuName,
             string result)
         {
             using var connection = OpenConnection();
@@ -243,8 +247,10 @@ namespace FCatFlasher.Services
             command.Parameters.AddWithValue("$serialNumber", serialNumber);
             command.Parameters.AddWithValue("$firmwareName", firmwareName);
             command.Parameters.AddWithValue("$firmwarePath", firmwareFileName);
-            command.Parameters.AddWithValue("$mcuId", mcuId);
-            command.Parameters.AddWithValue("$mcuName", mcuId);
+            string normalizedMcuName = NormalizeMcuName(mcuName);
+            string normalizedMcuId = NormalizeMcuName(mcuId);
+            command.Parameters.AddWithValue("$mcuId", normalizedMcuId);
+            command.Parameters.AddWithValue("$mcuName", normalizedMcuName);
             command.Parameters.AddWithValue("$result", result);
             command.Parameters.AddWithValue("$createdAtTicks", DateTime.Now.Ticks);
 
@@ -763,6 +769,30 @@ namespace FCatFlasher.Services
                 WHERE mcu_id = ''
                   AND mcu_name <> '';
 
+                UPDATE pending_device_registrations
+                SET mcu_name = 'STM32G0',
+                    mcu_id = ''
+                WHERE mcu_name = 'G0'
+                   OR mcu_id IN ('G0', 'STM32G0');
+
+                UPDATE pending_device_registrations
+                SET mcu_name = 'STM32C0',
+                    mcu_id = ''
+                WHERE mcu_name = 'C0'
+                   OR mcu_id IN ('C0', 'STM32C0');
+
+                UPDATE pending_rework_registrations
+                SET mcu_name = 'STM32G0',
+                    mcu_id = ''
+                WHERE mcu_name = 'G0'
+                   OR mcu_id IN ('G0', 'STM32G0');
+
+                UPDATE pending_rework_registrations
+                SET mcu_name = 'STM32C0',
+                    mcu_id = ''
+                WHERE mcu_name = 'C0'
+                   OR mcu_id IN ('C0', 'STM32C0');
+
                 DELETE FROM pending_rework_registrations
                 WHERE id NOT IN (
                     SELECT existing.id
@@ -837,6 +867,16 @@ namespace FCatFlasher.Services
                 toExclusive = fromDate.AddDays(1);
 
             return (fromDate.Ticks, toExclusive.Ticks);
+        }
+
+        private static string NormalizeMcuName(string mcuName)
+        {
+            return mcuName switch
+            {
+                "G0" => "STM32G0",
+                "C0" => "STM32C0",
+                _ => mcuName
+            };
         }
 
         private SqliteConnection OpenConnection()

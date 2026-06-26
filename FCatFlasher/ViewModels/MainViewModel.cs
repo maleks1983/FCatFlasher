@@ -404,6 +404,7 @@ namespace FCatFlasher.ViewModels
                 SaveSettings();
             }
         }
+
         private int _boxQuantity;
 
         public int BoxQuantity
@@ -1824,7 +1825,7 @@ namespace FCatFlasher.ViewModels
                 _apiService.AddDeviceRegistration(
                     _currentUser.Id,
                     GetCurrentBoardSerial(),
-                    _currentDeviceType,
+                    GetCurrentMcuName(),
                     GetCurrentFirmwareName(firmwarePath),
                     GetCurrentRegistrationType());
             }
@@ -1834,7 +1835,8 @@ namespace FCatFlasher.ViewModels
                     _currentUser.Id,
                     GetCurrentOrderIdForLocalRegistration(),
                     GetCurrentBoardSerial(),
-                    _currentDeviceType,
+                    GetCurrentMcuId(),
+                    GetCurrentMcuName(),
                     GetCurrentLocalFirmwareName(firmwarePath),
                     GetCurrentRegistrationType());
 
@@ -1873,7 +1875,7 @@ namespace FCatFlasher.ViewModels
                 _apiService.AddDeviceRegistration(
                     _currentUser.Id,
                     GetCurrentBoardSerial(),
-                    _currentDeviceType,
+                    GetCurrentMcuName(),
                     string.Empty,
                     TestRegistrationType);
             }
@@ -1894,7 +1896,8 @@ namespace FCatFlasher.ViewModels
                     _currentUser.Id,
                     GetCurrentOrderIdForLocalRegistration(),
                     GetCurrentBoardSerial(),
-                    _currentDeviceType,
+                    GetCurrentMcuId(),
+                    GetCurrentMcuName(),
                     GetCurrentLocalFirmwareName(firmwarePath),
                     GetCurrentRegistrationType());
 
@@ -1942,6 +1945,32 @@ namespace FCatFlasher.ViewModels
             return GetCurrentFirmwareName(firmwarePath);
         }
 
+        private string GetCurrentMcuId()
+        {
+            if (!string.IsNullOrWhiteSpace(_firmwareService.LastMcuId))
+                return _firmwareService.LastMcuId;
+
+            return string.Empty;
+        }
+
+        private string GetCurrentMcuName()
+        {
+            if (!string.IsNullOrWhiteSpace(_firmwareService.LastMcuName))
+                return _firmwareService.LastMcuName;
+
+            return GetFallbackMcuName();
+        }
+
+        private string GetFallbackMcuName()
+        {
+            return _currentDeviceType switch
+            {
+                "G0" => "STM32G0",
+                "C0" => "STM32C0",
+                _ => _currentDeviceType
+            };
+        }
+
         private static string GetFileNameFromPath(string path)
         {
             if (string.IsNullOrWhiteSpace(path))
@@ -1987,7 +2016,7 @@ namespace FCatFlasher.ViewModels
                 GetCurrentBoardSerial(),
                 firmwareName,
                 firmwarePath,
-                _currentDeviceType,
+                GetCurrentMcuName(),
                 "OK");
         }
 
@@ -2001,7 +2030,8 @@ namespace FCatFlasher.ViewModels
                 GetCurrentBoardSerial(),
                 firmwareName,
                 firmwarePath,
-                _currentDeviceType,
+                GetCurrentMcuId(),
+                GetCurrentMcuName(),
                 "OK");
         }
 

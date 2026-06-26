@@ -12,11 +12,16 @@ namespace FCatFlasher.Services
             "E:\\InicaalDG\\STM32CubeProgrammer\\bin\\STM32_Programmer_CLI.exe";
         private const string DefaultApiDirectory = "E:\\InicaalDG\\Cube\\api";
         private const uint FlashBaseAddress = 0x08000000;
+        private const uint G0UidBaseAddress = 0x1FFF7590;
+        private const uint C0UidBaseAddress = 0x1FFF7550;
+        private const int UniqueDeviceIdSize = 12;
         private const int ApiConnectionSettleDelayMs = 400;
         private const bool UseCliFallback = false;
 
         public string CliPath { get; set; } = DefaultCliPath;
         public string LastConnectionError { get; private set; } = string.Empty;
+        public string LastMcuId { get; private set; } = string.Empty;
+        public string LastMcuName { get; private set; } = string.Empty;
 
         public async Task<string> GetDeviceType()
         {
@@ -24,16 +29,9 @@ namespace FCatFlasher.Services
                 "GET DEVICE TYPE",
                 api =>
                 {
-                    string deviceName = api.GetDeviceName();
-
-                    if (deviceName.Contains("STM32G03") ||
-                        deviceName.Contains("STM32G04"))
-                        return "G0";
-
-                    if (deviceName.Contains("STM32C0"))
-                        return "C0";
-
-                    return "UNKNOWN";
+                    DeviceInfo deviceInfo = api.GetDeviceInfo();
+                    StoreMcuInfo(deviceInfo);
+                    return GetDeviceTypeFromName(deviceInfo.Name);
                 });
 
             if (!ShouldFallbackToCli(apiResult))
@@ -46,10 +44,16 @@ namespace FCatFlasher.Services
 
             if (result.Contains("STM32G03") ||
                 result.Contains("STM32G04"))
+            {
+                StoreMcuInfo(new DeviceInfo(string.Empty, "STM32G0"));
                 return "G0";
+            }
 
             if (result.Contains("STM32C0"))
+            {
+                StoreMcuInfo(new DeviceInfo(string.Empty, "STM32C0"));
                 return "C0";
+            }
 
             return "UNKNOWN";
         }
@@ -60,9 +64,16 @@ namespace FCatFlasher.Services
             {
                 string apiResult = await RunApi(
                     "CHECK CONNECTION",
-                    api => api.GetDeviceName().Length > 0
-                        ? "OK"
-                        : "ERROR: STM32CubeProgrammer API connected, but device info is empty");
+                    api =>
+                    {
+                        DeviceInfo deviceInfo = api.GetDeviceInfo();
+
+                        if (deviceInfo.Name.Length == 0)
+                            return "ERROR: STM32CubeProgrammer API connected, but device info is empty";
+
+                        StoreMcuInfo(deviceInfo);
+                        return "OK";
+                    });
 
                 if (!ShouldFallbackToCli(apiResult))
                 {
@@ -220,6 +231,30 @@ namespace FCatFlasher.Services
 
             return output.ToString();
         }
+
+        private void StoreMcuInfo(DeviceInfo deviceInfo)
+        {
+            if (!string.IsNullOrWhiteSpace(deviceInfo.Id))
+                LastMcuId = deviceInfo.Id;
+
+            if (!string.IsNullOrWhiteSpace(deviceInfo.Name))
+                LastMcuName = deviceInfo.Name;
+        }
+
+        private static string GetDeviceTypeFromName(string deviceName)
+        {
+            if (deviceName.Contains("STM32G03") ||
+                deviceName.Contains("STM32G04") ||
+                deviceName.Contains("STM32G0"))
+                return "G0";
+
+            if (deviceName.Contains("STM32C0"))
+                return "C0";
+
+            return "UNKNOWN";
+        }
+
+        private readonly record struct DeviceInfo(string Id, string Name);
 
         private async Task<string> RunApi(string title, Func<Stm32CubeProgrammerApi, string> action)
         {
@@ -518,7 +553,7 @@ namespace FCatFlasher.Services
                 };
             }
 
-            public string GetDeviceName()
+            public DeviceInfo GetDeviceInfo()
             {
                 lock (NativeLock)
                 {
@@ -529,11 +564,57 @@ namespace FCatFlasher.Services
                             IntPtr generalInfoPtr = NativeMethods.GetDeviceGeneralInf();
 
                             if (generalInfoPtr == IntPtr.Zero)
-                                return string.Empty;
+                                return new DeviceInfo(string.Empty, string.Empty);
 
                             GeneralInf generalInfo = Marshal.PtrToStructure<GeneralInf>(generalInfoPtr);
-                            return generalInfo.GetName();
+                            string deviceName = generalInfo.GetName();
+
+                            return new DeviceInfo(
+                                ReadUniqueDeviceId(deviceName),
+                                deviceName);
                         });
+                }
+            }
+
+            private static uint GetUidBaseAddress(string deviceName)
+            {
+                if (deviceName.Contains("STM32G0"))
+                    return G0UidBaseAddress;
+
+                if (deviceName.Contains("STM32C0"))
+                    return C0UidBaseAddress;
+
+                return 0;
+            }
+
+            private static string ReadUniqueDeviceId(string deviceName)
+            {
+                uint uidBaseAddress = GetUidBaseAddress(deviceName);
+
+                if (uidBaseAddress == 0)
+                    return string.Empty;
+
+                IntPtr dataPtr = IntPtr.Zero;
+
+                try
+                {
+                    int result = NativeMethods.ReadMemory(
+                        uidBaseAddress,
+                        out dataPtr,
+                        UniqueDeviceIdSize);
+
+                    if (result != 0 || dataPtr == IntPtr.Zero)
+                        return string.Empty;
+
+                    byte[] uidBytes = new byte[UniqueDeviceIdSize];
+                    Marshal.Copy(dataPtr, uidBytes, 0, uidBytes.Length);
+
+                    return Convert.ToHexString(uidBytes);
+                }
+                finally
+                {
+                    if (dataPtr != IntPtr.Zero)
+                        NativeMethods.FreeLibraryMemory(dataPtr);
                 }
             }
 
@@ -731,6 +812,15 @@ namespace FCatFlasher.Services
 
                 [DllImport(DllName, EntryPoint = "getDeviceGeneralInf", CallingConvention = CallingConvention.Cdecl)]
                 public static extern IntPtr GetDeviceGeneralInf();
+
+                [DllImport(DllName, EntryPoint = "readMemory", CallingConvention = CallingConvention.Cdecl)]
+                public static extern int ReadMemory(
+                    uint address,
+                    out IntPtr data,
+                    uint size);
+
+                [DllImport(DllName, EntryPoint = "freeLibraryMemory", CallingConvention = CallingConvention.Cdecl)]
+                public static extern void FreeLibraryMemory(IntPtr ptr);
 
                 [DllImport(DllName, EntryPoint = "downloadFile", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Unicode)]
                 public static extern int DownloadFile(
