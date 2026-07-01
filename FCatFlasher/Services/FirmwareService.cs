@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -12,7 +12,7 @@ namespace FCatFlasher.Services
             "E:\\InicaalDG\\STM32CubeProgrammer\\bin\\STM32_Programmer_CLI.exe";
         private const string DefaultApiDirectory = "E:\\InicaalDG\\Cube\\api";
         private const uint FlashBaseAddress = 0x08000000;
-        private const int ApiConnectionSettleDelayMs = 400;
+        private const int ApiConnectionSettleDelayMs = 100;
         private const bool UseCliFallback = false;
 
         public string CliPath { get; set; } = DefaultCliPath;
@@ -70,6 +70,40 @@ namespace FCatFlasher.Services
                         StoreMcuInfo(deviceInfo);
                         return "OK";
                     });
+
+                if (!ShouldFallbackToCli(apiResult))
+                {
+                    bool apiConnected = apiResult == "OK";
+                    LastConnectionError = apiConnected ? string.Empty : FormatConnectionCheckError(apiResult);
+                    return apiConnected;
+                }
+
+                string result = await RunCli(
+                    "-c port=SWD mode=UR",
+                    timeoutMs
+                );
+
+                bool connected = !result.Contains("ERROR") &&
+                                 !result.Contains("timeout") &&
+                                 result.Contains("Device ID");
+
+                LastConnectionError = connected ? string.Empty : result.Trim();
+                return connected;
+            }
+            catch (Exception ex)
+            {
+                LastConnectionError = ex.Message;
+                return false;
+            }
+        }
+
+        public async Task<bool> CheckBoardPresence(int timeoutMs = 3000)
+        {
+            try
+            {
+                string apiResult = await RunApi(
+                    "CHECK BOARD PRESENCE",
+                    _ => "OK");
 
                 if (!ShouldFallbackToCli(apiResult))
                 {
@@ -180,34 +214,7 @@ namespace FCatFlasher.Services
 
             string apiResult = await RunApi(
                 $"FLASH PRODUCTION FIRMWARE: {firmwarePath}",
-                api =>
-                {
-                    var apiOutput = new StringBuilder();
-
-                    int downloadResult = api.DownloadFile(
-                        firmwarePath,
-                        FlashBaseAddress,
-                        skipErase: false,
-                        verify: true);
-
-                    apiOutput.AppendLine(FormatApiResult("DOWNLOAD", downloadResult));
-
-                    if (downloadResult != 0)
-                        return apiOutput.ToString();
-
-                    apiOutput.AppendLine("=== SET RDP 0xBB ===");
-
-                    int rdpResult = api.SendOptionBytesCommand("-ob rdp=0xbb");
-                    apiOutput.AppendLine(FormatApiResult("RDP 0xBB", rdpResult));
-
-                    if (rdpResult != 0)
-                        return apiOutput.ToString();
-
-                    int resetResult = api.Reset();
-                    apiOutput.Append(FormatApiResult("RESET", resetResult));
-
-                    return apiOutput.ToString();
-                });
+                api => FlashProductionFirmwareInSession(api, firmwarePath));
 
             if (!ShouldFallbackToCli(apiResult))
             {
@@ -226,6 +233,79 @@ namespace FCatFlasher.Services
                 30000));
 
             return output.ToString();
+        }
+
+        public async Task<ProductionFlashSessionResult> FlashProductionFirmwareSession(
+            string firmwarePath,
+            Func<string, string> validateDeviceType)
+        {
+            var output = new StringBuilder();
+            string detectedDeviceType = "UNKNOWN";
+
+            output.AppendLine($"=== FLASH PRODUCTION FIRMWARE: {firmwarePath} ===");
+
+            string apiResult = await RunApi(
+                $"FLASH PRODUCTION FIRMWARE SESSION: {firmwarePath}",
+                api =>
+                {
+                    var apiOutput = new StringBuilder();
+
+                    DeviceInfo deviceInfo = api.GetDeviceInfo();
+                    StoreMcuInfo(deviceInfo);
+                    detectedDeviceType = GetDeviceTypeFromName(deviceInfo.Name);
+
+                    apiOutput.AppendLine($"MCU: {detectedDeviceType}");
+
+                    string validationError = validateDeviceType(detectedDeviceType);
+
+                    if (!string.IsNullOrWhiteSpace(validationError))
+                    {
+                        apiOutput.Append(validationError);
+                        return apiOutput.ToString();
+                    }
+
+                    apiOutput.Append(FlashProductionFirmwareInSession(api, firmwarePath));
+                    return apiOutput.ToString();
+                });
+
+            output.AppendLine(apiResult);
+
+            return new ProductionFlashSessionResult(detectedDeviceType, output.ToString());
+        }
+
+        public readonly record struct ProductionFlashSessionResult(
+            string DeviceType,
+            string Output);
+
+        private static string FlashProductionFirmwareInSession(
+            Stm32CubeProgrammerApi api,
+            string firmwarePath)
+        {
+            var apiOutput = new StringBuilder();
+
+            int downloadResult = api.DownloadFile(
+                firmwarePath,
+                FlashBaseAddress,
+                skipErase: false,
+                verify: true);
+
+            apiOutput.AppendLine(FormatApiResult("DOWNLOAD", downloadResult));
+
+            if (downloadResult != 0)
+                return apiOutput.ToString();
+
+            apiOutput.AppendLine("=== SET RDP 0xBB ===");
+
+            int rdpResult = api.SendOptionBytesCommand("-ob rdp=0xbb");
+            apiOutput.AppendLine(FormatApiResult("RDP 0xBB", rdpResult));
+
+            if (rdpResult != 0)
+                return apiOutput.ToString();
+
+            int resetResult = api.Reset();
+            apiOutput.Append(FormatApiResult("RESET", resetResult));
+
+            return apiOutput.ToString();
         }
 
         private void StoreMcuInfo(DeviceInfo deviceInfo)

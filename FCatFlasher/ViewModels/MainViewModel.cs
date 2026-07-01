@@ -18,7 +18,7 @@ namespace FCatFlasher.ViewModels
 {
     internal class MainViewModel : INotifyPropertyChanged
     {
-        private const int PowerOffBeforeRestartDelayMs = 500;
+        private const int PowerOffBeforeRestartDelayMs = 300;
         private const int BoardInsertPowerOffDelayMs = 100;
         private const int BoardInsertPowerOnDelayMs = 50;
         private const int StandCommandSettleDelayMs = 100;
@@ -59,7 +59,6 @@ namespace FCatFlasher.ViewModels
         private bool _skipReflashDiagnosticsReport;
         private bool _skipFlashRegistration;
         private bool _startingFlashAfterSerial;
-        private bool _productionFirmwarePrevalidated;
         private bool _productionBoxTimerStarted;
         private CancellationTokenSource? _serialEntryCts;
 
@@ -490,7 +489,6 @@ namespace FCatFlasher.ViewModels
             _reflashWorkflow = new ReflashWorkflow(
                 SendStandCommand,
                 SetStlinkModeAndEnsurePowerOn,
-                EnsureStlinkReady,
                 StartReflashFlashing);
             _testFirmwareWorkflow = new TestFirmwareWorkflow(
                 () => _cycleState = CycleState.Flashing,
@@ -924,7 +922,6 @@ namespace FCatFlasher.ViewModels
             _currentBoardSerial = "";
             _lastConnectionError = "";
             _startingFlashAfterSerial = false;
-            _productionFirmwarePrevalidated = false;
             _serialEntryCts?.Cancel();
             _serialEntryCts = null;
             IsSerialInputEnabled = true;
@@ -986,12 +983,15 @@ namespace FCatFlasher.ViewModels
 
             while (_cycleState == CycleState.WaitingBoard)
             {
-                await CycleBoardPowerWhileWaiting();
+                if (!_standPowerOn)
+                    await SendStandCommand("POWER_ON", BoardInsertPowerOnDelayMs, enforceMinimumDelay: false);
 
                 if (_cycleState != CycleState.WaitingBoard)
                     return;
 
-                bool present = await _firmwareService.CheckConnection();
+                bool present = _workMode == WorkMode.Production
+                    ? await _firmwareService.CheckBoardPresence()
+                    : await _firmwareService.CheckConnection();
 
                 if (present)
                 {
@@ -1023,6 +1023,7 @@ namespace FCatFlasher.ViewModels
                 }
 
                 LogConnectionErrorIfChanged();
+                await CycleBoardPowerWhileWaiting();
             }
         }
 
@@ -1031,27 +1032,9 @@ namespace FCatFlasher.ViewModels
             try
             {
                 _cycleState = CycleState.Flashing;
-
-                Status = "Preparing flash";
-                ProgressValue = 30;
-                _currentDeviceType = await GetProductionDeviceType();
-
-                if (!IsKnownDeviceType(_currentDeviceType))
-                {
-                    Status = "MCU Error";
-                    ProgressValue = 100;
-                    Log += $"ERROR: MCU not detected: {_currentDeviceType}\n";
-                    Log += ">>> Заберіть плату зі стенда...\n";
-
-                    _cycleState = CycleState.WaitingRemove;
-
-                    await WaitBoardRemovedAfterError();
-                    return;
-                }
-
-                Log += $"MCU: {_currentDeviceType}\n";
-
-                if (!ValidateProductionFirmwareForDevice())
+                _currentDeviceType = string.Empty;
+    
+                if (!ValidateProductionFirmwareFileExists())
                 {
                     _cycleState = CycleState.WaitingRemove;
 
@@ -1059,7 +1042,6 @@ namespace FCatFlasher.ViewModels
                     return;
                 }
 
-                _productionFirmwarePrevalidated = true;
                 WaitProductionSerialBeforeTest();
             }
             catch (Exception ex)
@@ -1243,6 +1225,67 @@ namespace FCatFlasher.ViewModels
                    result.Contains("ExitCode", StringComparison.OrdinalIgnoreCase) ||
                    result.Contains("timeout", StringComparison.OrdinalIgnoreCase) ||
                    result.Contains("failed", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private async Task<string> FlashProductionFirmwareWithRecovery(string firmwareToFlash)
+        {
+            string result = await _firmwareService.FlashProductionFirmware(firmwareToFlash);
+
+            if (!IsRecoverableStlinkFlashFailure(result))
+                return result;
+
+            Log += "WARNING: ST-LINK/API lost during flash. Повторно подаємо живлення і пробуємо ще раз...\n";
+            await PowerCycleToStlinkMode();
+
+            return await _firmwareService.FlashProductionFirmware(firmwareToFlash);
+        }
+
+        private async Task<FirmwareService.ProductionFlashSessionResult> FlashProductionFirmwareSessionWithRecovery(
+            string firmwareToFlash)
+        {
+            FirmwareService.ProductionFlashSessionResult result = await _firmwareService
+                .FlashProductionFirmwareSession(
+                    firmwareToFlash,
+                    deviceType => ValidateProductionFlashSessionDevice(deviceType, firmwareToFlash));
+
+            if (!IsRecoverableStlinkFlashFailure(result.Output))
+                return result;
+
+            Log += "WARNING: ST-LINK/API lost during flash. Повторно подаємо живлення і пробуємо ще раз...\n";
+            await PowerCycleToStlinkMode();
+
+            return await _firmwareService.FlashProductionFirmwareSession(
+                firmwareToFlash,
+                deviceType => ValidateProductionFlashSessionDevice(deviceType, firmwareToFlash));
+        }
+
+        private static bool ShouldRetryProductionFlashSession(
+            FirmwareService.ProductionFlashSessionResult result)
+        {
+            return !IsKnownDeviceType(result.DeviceType) ||
+                   IsRecoverableStlinkFlashFailure(result.Output);
+        }
+        private static string ValidateProductionFlashSessionDevice(string deviceType, string firmwarePath)
+        {
+            if (!IsKnownDeviceType(deviceType))
+                return $"ERROR: MCU not detected: {deviceType}\n";
+
+            if (!System.IO.File.Exists(firmwarePath))
+                return $"Firmware not found: {firmwarePath}\n";
+
+            if (deviceType == "C0" && !IsC0FirmwareNameValid(firmwarePath))
+                return $"ERROR: C0 firmware filename must contain c011: {firmwarePath}\n";
+
+            return string.Empty;
+        }
+
+        private static bool IsRecoverableStlinkFlashFailure(string result)
+        {
+            return result.Contains("STM32CubeProgrammer API unavailable", StringComparison.OrdinalIgnoreCase) ||
+                   result.Contains("getStLinkList", StringComparison.OrdinalIgnoreCase) ||
+                   result.Contains("connect attempts", StringComparison.OrdinalIgnoreCase) ||
+                   result.Contains("ST-LINK", StringComparison.OrdinalIgnoreCase) ||
+                   result.Contains("timeout", StringComparison.OrdinalIgnoreCase);
         }
 
         private async void OnDataReceived(string data)
@@ -1564,9 +1607,48 @@ namespace FCatFlasher.ViewModels
 
         private async Task StartProductionFlashing()
         {
-            await StartFlashing(
-                FirmwarePath,
-                skipFirmwareValidation: _productionFirmwarePrevalidated);
+            try
+            {
+                Status = "Preparing flash";
+                ProgressValue = 80;
+
+                Status = "Flashing";
+                ProgressValue = 90;
+                Log += "Прошивка...\n";
+
+                FirmwareService.ProductionFlashSessionResult result =
+                    await FlashProductionFirmwareSessionWithRecovery(FirmwarePath);
+
+                _currentDeviceType = result.DeviceType;
+
+                if (FlashResultFailed(result.Output))
+                {
+                    Log += result.Output + "\n";
+                    Status = "Flash Error";
+                    ProgressValue = 100;
+                    Log += "=== ПОМИЛКА ПРОШИВКИ ===\n";
+                    Log += ">>> Заберіть плату зі стенда...\n";
+
+                    _cycleState = CycleState.WaitingRemove;
+
+                    await WaitBoardRemovedAfterError();
+                    return;
+                }
+
+                Log += result.Output + "\n";
+
+                await CompleteSuccessfulFlash(FirmwarePath);
+            }
+            catch (Exception ex)
+            {
+                Status = "Flash Error";
+                ProgressValue = 100;
+                Log += "ERROR: " + ex.Message + "\n";
+
+                _cycleState = CycleState.WaitingRemove;
+
+                await WaitBoardRemovedAfterError();
+            }
         }
 
         private async Task StartReflashFlashing()
@@ -1628,7 +1710,7 @@ namespace FCatFlasher.ViewModels
                     return;
                 }
 
-                string result = await _firmwareService.FlashProductionFirmware(firmwareToFlash);
+                string result = await FlashProductionFirmwareWithRecovery(firmwareToFlash);
 
                 if (FlashResultFailed(result))
                 {
@@ -1644,27 +1726,7 @@ namespace FCatFlasher.ViewModels
                     return;
                 }
 
-                await SendStandCommand("BUZZ_OK", BuzzerOkDelayMs);
-
-                Status = "Flash OK";
-                ProgressValue = 100;
-
-                if (_skipFlashRegistration)
-                    Log += "=== ТЕСТОВА ПЕРЕПРОШИВКА: дані не збережено ===\n";
-                else
-                    RegisterDeviceInDatabase(firmwareToFlash);
-
-                if (!_skipFlashRegistration && _workMode == WorkMode.Production)
-                    _completedBox = RegisterFlashedBoard();
-
-                if (!_skipFlashRegistration)
-                    RegisterUniqueFlashedBoard();
-
-                Log += "Прошивку завершено\n";
-
-                _cycleState = CycleState.WaitingRemove;
-
-                await WaitBoardRemoved();
+                await CompleteSuccessfulFlash(firmwareToFlash);
             }
             catch (Exception ex)
             {
@@ -1678,11 +1740,47 @@ namespace FCatFlasher.ViewModels
             }
         }
 
+        private async Task CompleteSuccessfulFlash(string firmwareToFlash)
+        {
+            await SendStandCommand("BUZZ_OK", BuzzerOkDelayMs);
+
+            Status = "Flash OK";
+            ProgressValue = 100;
+
+            if (_skipFlashRegistration)
+                Log += "=== ТЕСТОВА ПЕРЕПРОШИВКА: дані не збережено ===\n";
+            else
+                RegisterDeviceInDatabase(firmwareToFlash);
+
+            if (!_skipFlashRegistration && _workMode == WorkMode.Production)
+                _completedBox = RegisterFlashedBoard();
+
+            if (!_skipFlashRegistration)
+                RegisterUniqueFlashedBoard();
+
+            Log += "Прошивку завершено\n";
+
+            _cycleState = CycleState.WaitingRemove;
+
+            await WaitBoardRemoved();
+        }
         private static bool IsC0FirmwareNameValid(string firmwarePath)
         {
             string fileName = System.IO.Path.GetFileName(firmwarePath);
 
             return fileName.Contains("c011", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private bool ValidateProductionFirmwareFileExists()
+        {
+            if (System.IO.File.Exists(FirmwarePath))
+                return true;
+
+            Log += $"Firmware not found: {FirmwarePath}\n";
+            Status = "Firmware not found";
+            ProgressValue = 100;
+            Log += ">>> Заберіть плату зі стенда...\n";
+            return false;
         }
 
         private bool ValidateProductionFirmwareForDevice()

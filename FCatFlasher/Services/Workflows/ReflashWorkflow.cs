@@ -8,18 +8,15 @@ namespace FCatFlasher.Services.Workflows
 
         private readonly Func<string, int, bool, Task> _sendStandCommand;
         private readonly Func<int, int, Task> _setStlinkModeAndEnsurePowerOn;
-        private readonly Func<string, Task<bool>> _ensureStlinkReady;
         private readonly Func<Task> _startFlashing;
 
         public ReflashWorkflow(
             Func<string, int, bool, Task> sendStandCommand,
             Func<int, int, Task> setStlinkModeAndEnsurePowerOn,
-            Func<string, Task<bool>> ensureStlinkReady,
             Func<Task> startFlashing)
         {
             _sendStandCommand = sendStandCommand;
             _setStlinkModeAndEnsurePowerOn = setStlinkModeAndEnsurePowerOn;
-            _ensureStlinkReady = ensureStlinkReady;
             _startFlashing = startFlashing;
         }
 
@@ -29,9 +26,6 @@ namespace FCatFlasher.Services.Workflows
             await _setStlinkModeAndEnsurePowerOn(
                 StlinkAfterTestModeSwitchDelayMs,
                 PowerOnSettleDelayMs);
-
-            if (!await _ensureStlinkReady("reflash firmware"))
-                return;
 
             await _startFlashing();
         }
