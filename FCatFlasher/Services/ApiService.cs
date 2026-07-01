@@ -76,6 +76,7 @@ namespace FCatFlasher.Services
             string serialNumber,
             string firmwareName,
             string firmwarePath,
+            string mcuId,
             string mcuName,
             string result)
         {
@@ -87,6 +88,7 @@ namespace FCatFlasher.Services
                     serialNumber,
                     firmwareName,
                     firmwarePath,
+                    mcuId,
                     mcuName,
                     Environment.MachineName,
                     result));
@@ -209,6 +211,7 @@ namespace FCatFlasher.Services
             string SerialNumber,
             string FirmwareName,
             string FirmwarePath,
+            string McuId,
             string McuName,
             string StationName,
             string Result);

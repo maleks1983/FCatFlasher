@@ -279,7 +279,7 @@ namespace FCatFlasher.Services
                 SELECT box_number, quantity, firmware_name, serial_numbers, first_serial, last_serial, created_at_ticks
                 FROM pending_box_reports
                 WHERE $fromTicks IS NULL OR created_at_ticks >= $fromTicks
-                ORDER BY id;
+                ORDER BY id DESC;
                 """;
 
             command.Parameters.AddWithValue("$fromTicks", fromTicks.HasValue ? fromTicks.Value : DBNull.Value);
@@ -653,7 +653,7 @@ namespace FCatFlasher.Services
 
             selectCommand.CommandText =
                 """
-                SELECT id, user_id, order_id, serial_number, firmware_name, firmware_path, mcu_name, result
+                SELECT id, user_id, order_id, serial_number, firmware_name, firmware_path, mcu_id, mcu_name, result
                 FROM pending_rework_registrations
                 ORDER BY id;
                 """;
@@ -671,7 +671,8 @@ namespace FCatFlasher.Services
                     reader.GetString(4),
                     reader.GetString(5),
                     reader.GetString(6),
-                    reader.GetString(7));
+                    reader.GetString(7),
+                    reader.GetString(8));
 
                 DeleteById("pending_rework_registrations", id);
             }

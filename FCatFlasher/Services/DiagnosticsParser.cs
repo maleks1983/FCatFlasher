@@ -7,6 +7,7 @@ namespace FCatFlasher.Services
 
         public int LastSig { get; private set; }
         public string LastReport { get; private set; } = string.Empty;
+        public string LastMcuSerial { get; private set; } = string.Empty;
 
         public void Reset()
         {
@@ -14,6 +15,7 @@ namespace FCatFlasher.Services
             _report = string.Empty;
             LastSig = 0;
             LastReport = string.Empty;
+            LastMcuSerial = string.Empty;
         }
 
         public bool? ProcessLine(string line)
@@ -38,34 +40,68 @@ namespace FCatFlasher.Services
 
         private bool IsDiagnosticsOk(string report)
         {
-            int sig = GetReportInt(report, "SIG");
-            LastSig = sig;
+            Dictionary<string, string> values = ParseReportValues(report);
 
-            return report.Contains("OUT_IO: OK") &&
-                   report.Contains("OUT_HS: OK") &&
-                   report.Contains("OUT_LS: OK") &&
-                   report.Contains("ADC: OK") &&
-                   report.Contains("ACC: OK") &&
-                   report.Contains("BUZ: OK") &&
-                   sig > 0;
+            LastSig = GetReportInt(values, "SIG");
+            LastMcuSerial = NormalizeMcuSerial(GetReportText(values, "SER"));
+
+            return LastSig > 0 &&
+                   !string.IsNullOrWhiteSpace(LastMcuSerial) &&
+                   IsReportOk(values, "OUT_IO") &&
+                   IsReportOk(values, "OUT_HS") &&
+                   IsReportOk(values, "OUT_LS") &&
+                   IsReportOk(values, "ADC") &&
+                   IsReportOk(values, "ACC") &&
+                   IsReportOk(values, "BUZ");
         }
 
-        private static int GetReportInt(string report, string key)
+        private static Dictionary<string, string> ParseReportValues(string report)
         {
+            var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
             foreach (string line in report.Split('\n'))
             {
                 string trimmed = line.Trim();
+                int separatorIndex = trimmed.IndexOf(':');
 
-                if (!trimmed.StartsWith(key + ":"))
+                if (separatorIndex <= 0)
                     continue;
 
-                string value = trimmed.Substring((key + ":").Length).Trim();
-
-                if (int.TryParse(value, out int result))
-                    return result;
+                string key = trimmed[..separatorIndex].Trim();
+                string value = trimmed[(separatorIndex + 1)..].Trim();
+                values[key] = value;
             }
 
-            return 0;
+            return values;
+        }
+
+        private static bool IsReportOk(IReadOnlyDictionary<string, string> values, string key)
+        {
+            return values.TryGetValue(key, out string? value) &&
+                   value.Equals("OK", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static int GetReportInt(IReadOnlyDictionary<string, string> values, string key)
+        {
+            if (!values.TryGetValue(key, out string? value))
+                return 0;
+
+            return int.TryParse(value, out int result) ? result : 0;
+        }
+
+        private static string GetReportText(IReadOnlyDictionary<string, string> values, string key)
+        {
+            if (!values.TryGetValue(key, out string? value))
+                return string.Empty;
+
+            return value;
+        }
+
+        private static string NormalizeMcuSerial(string serial)
+        {
+            return new string(
+                serial.Trim().Where(char.IsLetterOrDigit).ToArray())
+                .ToUpperInvariant();
         }
     }
 }

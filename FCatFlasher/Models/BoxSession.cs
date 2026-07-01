@@ -20,32 +20,32 @@ namespace FCatFlasher.Models
 
         public BoxReport CreateCurrentReport(string firmwareName)
         {
-            string serialRanges = FormatSerialRanges();
+            SerialRangeData rangeData = BuildSerialRangeData();
 
             return new BoxReport
             {
                 BoxNumber = BoxNumber,
                 Quantity = CurrentCount,
                 FirmwareName = firmwareName,
-                SerialNumbersText = serialRanges,
-                FirstSerial = serialRanges,
-                LastSerial = serialRanges,
+                SerialNumbersText = rangeData.RangeText,
+                FirstSerial = rangeData.FirstSerial,
+                LastSerial = rangeData.LastSerial,
                 CreatedAt = DateTime.Now
             };
         }
 
         public BoxReport CreateReport(int quantity, string firmwareName)
         {
-            string serialRanges = FormatSerialRanges();
+            SerialRangeData rangeData = BuildSerialRangeData();
 
             return new BoxReport
             {
                 BoxNumber = BoxNumber,
                 Quantity = quantity,
                 FirmwareName = firmwareName,
-                SerialNumbersText = serialRanges,
-                FirstSerial = serialRanges,
-                LastSerial = serialRanges,
+                SerialNumbersText = rangeData.RangeText,
+                FirstSerial = rangeData.FirstSerial,
+                LastSerial = rangeData.LastSerial,
                 CreatedAt = DateTime.Now
             };
         }
@@ -57,7 +57,7 @@ namespace FCatFlasher.Models
             _serialNumbers.Clear();
         }
 
-        private string FormatSerialRanges()
+        private SerialRangeData BuildSerialRangeData()
         {
             var serials = _serialNumbers
                 .Where(serial => !string.IsNullOrWhiteSpace(serial))
@@ -99,8 +99,16 @@ namespace FCatFlasher.Models
                     : $"{start.Original}-{end.Original}");
             }
 
-            return string.Join(", ", ranges);
+            return new SerialRangeData(
+                string.Join(", ", ranges),
+                serials.Count == 0 ? string.Empty : serials[0].Original,
+                serials.Count == 0 ? string.Empty : serials[^1].Original);
         }
+
+        private sealed record SerialRangeData(
+            string RangeText,
+            string FirstSerial,
+            string LastSerial);
 
         private sealed record ParsedSerial(
             string Original,
