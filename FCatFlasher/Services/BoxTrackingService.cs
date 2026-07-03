@@ -1,7 +1,10 @@
-using FCatFlasher.Models;
+﻿using FCatFlasher.Models;
 
 namespace FCatFlasher.Services
 {
+/// <summary>
+/// Веде стан поточної коробки та вже збережені звіти коробок.
+/// </summary>
     internal class BoxTrackingService
     {
         private readonly BoxSession _boxSession = new();
@@ -9,6 +12,9 @@ namespace FCatFlasher.Services
 
         public int FlashedToday { get; private set; }
 
+/// <summary>
+/// Завантажує існуючі звіти, щоб продовжити нумерацію коробок.
+/// </summary>
         public void LoadReports(IEnumerable<BoxReport> reports)
         {
             _boxReports.Clear();
@@ -20,11 +26,17 @@ namespace FCatFlasher.Services
                 _boxSession.BoxNumber = _boxReports.Max(report => report.BoxNumber) + 1;
         }
 
+/// <summary>
+/// Встановлює денний лічильник прошитих плат для розрахунку номера коробки.
+/// </summary>
         public void SetFlashedToday(int flashedToday)
         {
             FlashedToday = Math.Max(0, flashedToday);
         }
 
+/// <summary>
+/// Повертає проміжний звіт поточної неповної коробки.
+/// </summary>
         public BoxReport? GetCurrentBoxReport(int boxQuantity, string firmwareName)
         {
             if (boxQuantity <= 0)
@@ -33,6 +45,9 @@ namespace FCatFlasher.Services
             return _boxSession.CreateCurrentReport(firmwareName);
         }
 
+/// <summary>
+/// Додає плату до коробки і повертає звіт, якщо коробка заповнилась.
+/// </summary>
         public BoxReport? RegisterFlashedBoard(
             int boxQuantity,
             string serial,
@@ -57,6 +72,9 @@ namespace FCatFlasher.Services
             return report;
         }
 
+/// <summary>
+/// Переходить до наступної коробки після збереження поточної.
+/// </summary>
         public void NextBox()
         {
             _boxSession.NextBox();

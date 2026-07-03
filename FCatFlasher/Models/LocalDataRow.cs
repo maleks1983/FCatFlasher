@@ -1,5 +1,8 @@
-namespace FCatFlasher.Models
+﻿namespace FCatFlasher.Models
 {
+/// <summary>
+/// Універсальний рядок таблиці локальних даних у головному вікні.
+/// </summary>
     public class LocalDataRow
     {
         public string Column1 { get; set; } = string.Empty;

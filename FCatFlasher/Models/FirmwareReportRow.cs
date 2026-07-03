@@ -1,7 +1,10 @@
-using System.Globalization;
+﻿using System.Globalization;
 
 namespace FCatFlasher.Models
 {
+/// <summary>
+/// Рядок локального звіту прошивок за прошивкою і кількістю.
+/// </summary>
     public class FirmwareReportRow
     {
         public string FirmwareName { get; set; } = string.Empty;

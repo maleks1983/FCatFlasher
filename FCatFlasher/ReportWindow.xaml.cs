@@ -1,4 +1,4 @@
-using FCatFlasher.Models;
+﻿using FCatFlasher.Models;
 using FCatFlasher.Services;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
@@ -7,6 +7,9 @@ using System.Windows;
 
 namespace FCatFlasher
 {
+/// <summary>
+/// Вікно локального звіту по виробничих або rework-прошивках.
+/// </summary>
     public partial class ReportWindow : Window, INotifyPropertyChanged
     {
         private readonly LocalDatabaseService _localDatabaseService;
@@ -15,6 +18,9 @@ namespace FCatFlasher
         private DateTime _reportToDate = DateTime.Today;
         private string _reportStatus = "";
 
+/// <summary>
+/// Створює звітне вікно для вибраного типу звіту.
+/// </summary>
         internal ReportWindow(LocalDatabaseService localDatabaseService, bool isReworkReport)
         {
             _localDatabaseService = localDatabaseService;
@@ -68,6 +74,9 @@ namespace FCatFlasher
             }
         }
 
+/// <summary>
+/// Оновлює звіт за вибраний період.
+/// </summary>
         private void RefreshButton_Click(object sender, RoutedEventArgs e)
         {
             LoadReport();
@@ -104,6 +113,9 @@ namespace FCatFlasher
             }
         }
 
+/// <summary>
+/// Сповіщає WPF про зміну властивості вікна.
+/// </summary>
         private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
         {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));

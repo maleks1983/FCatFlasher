@@ -1,8 +1,11 @@
-using System.IO;
+﻿using System.IO;
 using System.Text;
 
 namespace FCatFlasher.Services
 {
+/// <summary>
+/// Вибирає тестові прошивки і делегує запис у FirmwareService.
+/// </summary>
     internal class TestFirmwareService(FirmwareService firmwareService)
     {
         private const string DefaultTestFirmwareDirectory = @"D:\";
@@ -11,6 +14,9 @@ namespace FCatFlasher.Services
         // private const string C0TestFirmwareFileName = "c011_factory_no_accel_plus_crc.hex";
         public string TestFirmwareDirectory { get; set; } = DefaultTestFirmwareDirectory;
 
+/// <summary>
+/// Автоматично визначає MCU і заливає відповідну тестову прошивку.
+/// </summary>
         public async Task<string> FlashAutoTestFirmware()
         {
             string device = await firmwareService.GetDeviceType();
@@ -18,6 +24,9 @@ namespace FCatFlasher.Services
             return await FlashTestFirmwareForDevice(device);
         }
 
+/// <summary>
+/// Визначає MCU, знімає RDP і прошиває тестову прошивку в одному сценарії.
+/// </summary>
         public async Task<(string DeviceType, string Output)> FlashAutoTestFirmwareWithUnlockSession()
         {
             var output = new StringBuilder();
@@ -55,6 +64,9 @@ namespace FCatFlasher.Services
             return (unlockResult.DeviceType, output.ToString());
         }
 
+/// <summary>
+/// Прошиває тестовий HEX для явно заданого типу MCU.
+/// </summary>
         public async Task<string> FlashTestFirmwareForDevice(string device)
         {
             var output = new StringBuilder();
@@ -93,6 +105,9 @@ namespace FCatFlasher.Services
             return output.ToString();
         }
 
+/// <summary>
+/// Визначає помилку прошивки за текстовим результатом API.
+/// </summary>
         private static bool FlashResultFailed(string result)
         {
             return result.Contains("ERROR", StringComparison.OrdinalIgnoreCase) ||
@@ -101,6 +116,9 @@ namespace FCatFlasher.Services
                    result.Contains("failed", StringComparison.OrdinalIgnoreCase);
         }
 
+/// <summary>
+/// Формує повний шлях до тестової прошивки у налаштованій папці.
+/// </summary>
         private string GetTestFirmwarePath(string fileName)
         {
             string directory = string.IsNullOrWhiteSpace(TestFirmwareDirectory)

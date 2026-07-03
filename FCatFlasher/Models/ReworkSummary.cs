@@ -1,7 +1,10 @@
-using System.Globalization;
+﻿using System.Globalization;
 
 namespace FCatFlasher.Models
 {
+/// <summary>
+/// Агрегований підсумок локальних rework-записів за замовленням.
+/// </summary>
     public class ReworkSummary
     {
         public string OrderId { get; set; } = string.Empty;

@@ -1,7 +1,10 @@
-using System.Windows;
+﻿using System.Windows;
 
 namespace FCatFlasher
 {
+/// <summary>
+/// Діалог введення номера rework-замовлення та назви прошивки.
+/// </summary>
     public partial class OrderIdWindow : Window
     {
         public OrderIdWindow(string orderId = "", string firmwareName = "")
@@ -18,6 +21,9 @@ namespace FCatFlasher
 
         public string FirmwareName { get; private set; } = string.Empty;
 
+/// <summary>
+/// Валідує номер замовлення і повертає введені значення.
+/// </summary>
         private void OkButton_Click(object sender, RoutedEventArgs e)
         {
             string orderId = OrderIdTextBox.Text.Trim();
@@ -34,6 +40,9 @@ namespace FCatFlasher
             DialogResult = true;
         }
 
+/// <summary>
+/// Закриває діалог без зміни даних.
+/// </summary>
         private void CancelButton_Click(object sender, RoutedEventArgs e)
         {
             DialogResult = false;

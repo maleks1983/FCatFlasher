@@ -1,5 +1,8 @@
 ﻿namespace FCatFlasher.Models
 {
+/// <summary>
+/// Звіт виробничої коробки із діапазонами та списком серійників.
+/// </summary>
     public class BoxReport
     {
         public int BoxNumber { get; set; }

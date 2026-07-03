@@ -1,5 +1,8 @@
 ﻿namespace FCatFlasher.Models
 {
+/// <summary>
+/// Набір користувацьких налаштувань, які зберігаються в settings.json.
+/// </summary>
     class AppSettings
     {
         public string SelectedComPort { get; set; } = "";
@@ -11,8 +14,7 @@
         public string C0FirmwarePath { get; set; } = "";
         public string ReworkOrderId { get; set; } = "";
         public string TestFirmwareDirectory { get; set; } = @"D:\";
-        public string StmCubeCliPath { get; set; } =
-            @"E:\InicaalDG\STM32CubeProgrammer\bin\STM32_Programmer_CLI.exe";
         public string ApiBaseUrl { get; set; } = "http://localhost:8080";
+        public bool UseOptimizedProductionFlashMode { get; set; } = true;
     }
 }

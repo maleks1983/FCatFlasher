@@ -1,5 +1,8 @@
-namespace FCatFlasher.Models
+﻿namespace FCatFlasher.Models
 {
+/// <summary>
+/// Накопичує серійники поточної виробничої коробки.
+/// </summary>
     public class BoxSession
     {
         private readonly List<string> _serialNumbers = new();
@@ -7,17 +10,26 @@ namespace FCatFlasher.Models
         public int BoxNumber { get; set; } = 1;
         public int CurrentCount { get; private set; }
 
+/// <summary>
+/// Додає серійник прошитої плати до поточної коробки.
+/// </summary>
         public void AddBoard(string serial)
         {
             _serialNumbers.Add(serial);
             CurrentCount++;
         }
 
+/// <summary>
+/// Перевіряє, чи досягнута задана місткість коробки.
+/// </summary>
         public bool IsFull(int boxQuantity)
         {
             return boxQuantity > 0 && CurrentCount >= boxQuantity;
         }
 
+/// <summary>
+/// Створює проміжний звіт для поточної коробки без переходу до наступної.
+/// </summary>
         public BoxReport CreateCurrentReport(string firmwareName)
         {
             SerialRangeData rangeData = BuildSerialRangeData();
@@ -34,6 +46,9 @@ namespace FCatFlasher.Models
             };
         }
 
+/// <summary>
+/// Створює фінальний звіт коробки.
+/// </summary>
         public BoxReport CreateReport(int quantity, string firmwareName)
         {
             SerialRangeData rangeData = BuildSerialRangeData();
@@ -50,6 +65,9 @@ namespace FCatFlasher.Models
             };
         }
 
+/// <summary>
+/// Очищає поточні серійники і збільшує номер коробки.
+/// </summary>
         public void NextBox()
         {
             BoxNumber++;
@@ -57,6 +75,9 @@ namespace FCatFlasher.Models
             _serialNumbers.Clear();
         }
 
+/// <summary>
+/// Будує компактні текстові діапазони серійників для етикетки або звіту.
+/// </summary>
         private SerialRangeData BuildSerialRangeData()
         {
             var serials = _serialNumbers

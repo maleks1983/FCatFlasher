@@ -1,25 +1,26 @@
-﻿using System.Diagnostics;
-using System.Globalization;
+﻿using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 
 namespace FCatFlasher.Services
 {
+/// <summary>
+/// Сервіс низькорівневих операцій STM32CubeProgrammer API: MCU, RDP, flash і reset.
+/// </summary>
     internal class FirmwareService
     {
-        private const string DefaultCliPath =
-            "E:\\InicaalDG\\STM32CubeProgrammer\\bin\\STM32_Programmer_CLI.exe";
         private const string DefaultApiDirectory = "E:\\InicaalDG\\Cube\\api";
         private const uint FlashBaseAddress = 0x08000000;
         private const int ApiConnectionSettleDelayMs = 100;
         private const int ApiSessionSettleDelayMs = 150;
-        private const bool UseCliFallback = false;
 
-        public string CliPath { get; set; } = DefaultCliPath;
         public string LastConnectionError { get; private set; } = string.Empty;
         public string LastMcuName { get; private set; } = string.Empty;
 
+        /// <summary>
+        /// Зчитує тип MCU через STM32CubeProgrammer API.
+        /// </summary>
         public async Task<string> GetDeviceType()
         {
             string apiResult = await RunApi(
@@ -31,31 +32,13 @@ namespace FCatFlasher.Services
                     return GetDeviceTypeFromName(deviceInfo.Name);
                 });
 
-            if (!ShouldFallbackToCli(apiResult))
-                return apiResult;
-
-            string result = await RunCli(
-                "-c port=SWD mode=UR",
-                5000
-            );
-
-            if (result.Contains("STM32G03") ||
-                result.Contains("STM32G04"))
-            {
-                StoreMcuInfo(new DeviceInfo("STM32G0"));
-                return "G0";
-            }
-
-            if (result.Contains("STM32C0"))
-            {
-                StoreMcuInfo(new DeviceInfo("STM32C0"));
-                return "C0";
-            }
-
-            return "UNKNOWN";
+            return apiResult;
         }
 
-        public async Task<bool> CheckConnection(int timeoutMs = 3000)
+        /// <summary>
+        /// Перевіряє, чи ST-LINK бачить MCU і повертає причину помилки в LastConnectionError.
+        /// </summary>
+        public async Task<bool> CheckConnection()
         {
             try
             {
@@ -72,24 +55,9 @@ namespace FCatFlasher.Services
                         return "OK";
                     });
 
-                if (!ShouldFallbackToCli(apiResult))
-                {
-                    bool apiConnected = apiResult == "OK";
-                    LastConnectionError = apiConnected ? string.Empty : FormatConnectionCheckError(apiResult);
-                    return apiConnected;
-                }
-
-                string result = await RunCli(
-                    "-c port=SWD mode=UR",
-                    timeoutMs
-                );
-
-                bool connected = !result.Contains("ERROR") &&
-                                 !result.Contains("timeout") &&
-                                 result.Contains("Device ID");
-
-                LastConnectionError = connected ? string.Empty : result.Trim();
-                return connected;
+                bool apiConnected = apiResult == "OK";
+                LastConnectionError = apiConnected ? string.Empty : FormatConnectionCheckError(apiResult);
+                return apiConnected;
             }
             catch (Exception ex)
             {
@@ -98,7 +66,10 @@ namespace FCatFlasher.Services
             }
         }
 
-        public async Task<bool> CheckBoardPresence(int timeoutMs = 3000)
+        /// <summary>
+        /// Перевіряє присутність плати на стенді через API-підключення ST-LINK.
+        /// </summary>
+        public async Task<bool> CheckBoardPresence()
         {
             try
             {
@@ -106,24 +77,9 @@ namespace FCatFlasher.Services
                     "CHECK BOARD PRESENCE",
                     _ => "OK");
 
-                if (!ShouldFallbackToCli(apiResult))
-                {
-                    bool apiConnected = apiResult == "OK";
-                    LastConnectionError = apiConnected ? string.Empty : FormatConnectionCheckError(apiResult);
-                    return apiConnected;
-                }
-
-                string result = await RunCli(
-                    "-c port=SWD mode=UR",
-                    timeoutMs
-                );
-
-                bool connected = !result.Contains("ERROR") &&
-                                 !result.Contains("timeout") &&
-                                 result.Contains("Device ID");
-
-                LastConnectionError = connected ? string.Empty : result.Trim();
-                return connected;
+                bool apiConnected = apiResult == "OK";
+                LastConnectionError = apiConnected ? string.Empty : FormatConnectionCheckError(apiResult);
+                return apiConnected;
             }
             catch (Exception ex)
             {
@@ -132,6 +88,9 @@ namespace FCatFlasher.Services
             }
         }
 
+        /// <summary>
+        /// Знімає RDP-захист перед тестовою прошивкою.
+        /// </summary>
         public async Task<string> UnlockRdp()
         {
             string apiResult = await RunApi(
@@ -142,15 +101,12 @@ namespace FCatFlasher.Services
                     return FormatApiResult("RDP 0xAA", result);
                 });
 
-            if (!ShouldFallbackToCli(apiResult))
-                return apiResult;
-
-            return await RunCli(
-                "-c port=SWD -ob rdp=0xAA",
-                30000
-            );
+            return apiResult;
         }
 
+        /// <summary>
+        /// В одному API-сеансі визначає MCU і знімає RDP.
+        /// </summary>
         public async Task<RdpUnlockSessionResult> GetDeviceTypeAndUnlockRdp()
         {
             string detectedDeviceType = "UNKNOWN";
@@ -181,23 +137,12 @@ namespace FCatFlasher.Services
                     return output.ToString();
                 });
 
-            if (!ShouldFallbackToCli(apiResult))
-                return new RdpUnlockSessionResult(detectedDeviceType, apiResult);
-
-            detectedDeviceType = await GetDeviceType();
-
-            if (detectedDeviceType == "UNKNOWN")
-                return new RdpUnlockSessionResult(detectedDeviceType, "ERROR: Unknown MCU");
-
-            string unlockResult = await UnlockRdp();
-            return new RdpUnlockSessionResult(
-                detectedDeviceType,
-                new StringBuilder()
-                    .AppendLine($"MCU: {detectedDeviceType}")
-                    .Append(unlockResult)
-                    .ToString());
+            return new RdpUnlockSessionResult(detectedDeviceType, apiResult);
         }
 
+        /// <summary>
+        /// Записує HEX-файл у flash-пам'ять і опційно виконує reset.
+        /// </summary>
         public async Task<string> WriteFirmware(string firmwarePath, bool resetAfterWrite)
         {
             string apiResult = await RunApi(
@@ -219,17 +164,12 @@ namespace FCatFlasher.Services
                         .ToString();
                 });
 
-            if (!ShouldFallbackToCli(apiResult))
-                return apiResult;
-
-            string resetArgument = resetAfterWrite ? " -rst" : "";
-
-            return await RunCli(
-                $"-c port=SWD -w \"{firmwarePath}\"{resetArgument}",
-                30000
-            );
+            return apiResult;
         }
 
+        /// <summary>
+        /// Встановлює RDP 0xBB після виробничої прошивки.
+        /// </summary>
         public async Task<string> SetRdpProtected()
         {
             string apiResult = await RunApi(
@@ -245,15 +185,12 @@ namespace FCatFlasher.Services
                         .ToString();
                 });
 
-            if (!ShouldFallbackToCli(apiResult))
-                return apiResult;
-
-            return await RunCli(
-                "-c port=SWD -ob rdp=0xBB -rst",
-                30000
-            );
+            return apiResult;
         }
 
+        /// <summary>
+        /// Виконує повну виробничу прошивку через API.
+        /// </summary>
         public async Task<string> FlashProductionFirmware(string firmwarePath)
         {
             var output = new StringBuilder();
@@ -264,25 +201,13 @@ namespace FCatFlasher.Services
                 $"FLASH PRODUCTION FIRMWARE: {firmwarePath}",
                 api => FlashProductionFirmwareInSession(api, firmwarePath));
 
-            if (!ShouldFallbackToCli(apiResult))
-            {
-                output.AppendLine(apiResult);
-                return output.ToString();
-            }
-
             output.AppendLine(apiResult);
-            output.AppendLine(await RunCli(
-                $"-c port=SWD -w \"{firmwarePath}\"",
-                30000));
-
-            output.AppendLine("=== SET RDP 0xBB ===");
-            output.AppendLine(await RunCli(
-                "-c port=SWD -ob rdp=0xBB -rst",
-                30000));
-
             return output.ToString();
         }
 
+        /// <summary>
+        /// В одному API-сеансі перевіряє MCU, прошиває файл і повертає тип пристрою.
+        /// </summary>
         public async Task<ProductionFlashSessionResult> FlashProductionFirmwareSession(
             string firmwarePath,
             Func<string, string> validateDeviceType)
@@ -381,6 +306,9 @@ namespace FCatFlasher.Services
 
         private readonly record struct DeviceInfo(string Name);
 
+        /// <summary>
+        /// Виконує операцію STM32CubeProgrammer API у фоновому потоці та нормалізує помилки.
+        /// </summary>
         private async Task<string> RunApi(string title, Func<Stm32CubeProgrammerApi, string> action)
         {
             return await Task.Run(() =>
@@ -425,34 +353,17 @@ namespace FCatFlasher.Services
             });
         }
 
+        /// <summary>
+        /// Повертає папку бібліотек STM32CubeProgrammer API.
+        /// </summary>
         private string GetApiLibDirectory()
         {
-            string? binDirectory = Path.GetDirectoryName(CliPath);
-
-            if (string.IsNullOrWhiteSpace(binDirectory))
-                throw new DirectoryNotFoundException("STM32CubeProgrammer bin directory was not found.");
-
-            string programmerDirectory = Directory.GetParent(binDirectory)?.FullName
-                ?? throw new DirectoryNotFoundException("STM32CubeProgrammer directory was not found.");
-
             string defaultApiLibDirectory = Path.Combine(DefaultApiDirectory, "lib");
 
             if (Directory.Exists(defaultApiLibDirectory))
                 return defaultApiLibDirectory;
 
-            return Path.Combine(programmerDirectory, "api", "lib");
-        }
-
-        private static bool IsApiUnavailable(string result)
-        {
-            return result.StartsWith("ERROR: STM32CubeProgrammer API unavailable:", StringComparison.Ordinal);
-        }
-
-        private static bool ShouldFallbackToCli(string result)
-        {
-            return UseCliFallback &&
-                   (IsApiUnavailable(result) ||
-                    result.StartsWith("ERROR: STM32CubeProgrammer API", StringComparison.Ordinal));
+            throw new DirectoryNotFoundException($"STM32CubeProgrammer API lib directory was not found: {defaultApiLibDirectory}");
         }
 
         private static string FormatApiUnavailable(string message)
@@ -467,6 +378,9 @@ namespace FCatFlasher.Services
                 : $"ERROR: {operation} failed with code {result}";
         }
 
+        /// <summary>
+        /// Перетворює сире повідомлення API у зрозумілу оператору помилку підключення.
+        /// </summary>
         private static string FormatConnectionCheckError(string result)
         {
             if (result.Contains("connect attempts:", StringComparison.OrdinalIgnoreCase) &&
@@ -476,82 +390,6 @@ namespace FCatFlasher.Services
             }
 
             return result;
-        }
-
-        private async Task<string> RunCli(string arguments, int timeoutMs)
-        {
-            var output = new StringBuilder();
-
-            if (string.IsNullOrWhiteSpace(CliPath) || !File.Exists(CliPath))
-            {
-                output.AppendLine($"ERROR: STM32Cube CLI not found: {CliPath}");
-                return output.ToString();
-            }
-
-            var psi = new ProcessStartInfo
-            {
-                FileName = CliPath,
-                Arguments = arguments,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-
-            using var process = new Process();
-            process.StartInfo = psi;
-
-            process.OutputDataReceived += (_, e) =>
-            {
-                if (e.Data != null)
-                    output.AppendLine(e.Data);
-            };
-
-            process.ErrorDataReceived += (_, e) =>
-            {
-                if (e.Data != null)
-                    output.AppendLine(e.Data);
-            };
-
-            process.Start();
-
-            process.BeginOutputReadLine();
-            process.BeginErrorReadLine();
-
-            bool finished = await WaitProcess(process, timeoutMs);
-
-            if (!finished)
-            {
-                output.AppendLine("ERROR: STM32_Programmer_CLI timeout");
-                return output.ToString();
-            }
-
-            if (process.ExitCode != 0)
-                output.AppendLine($"ERROR: ExitCode = {process.ExitCode}");
-
-            return output.ToString();
-        }
-
-        private static async Task<bool> WaitProcess(Process process, int timeoutMs)
-        {
-            var waitTask = process.WaitForExitAsync();
-            var delayTask = Task.Delay(timeoutMs);
-
-            var completed = await Task.WhenAny(waitTask, delayTask);
-
-            if (completed == waitTask)
-                return true;
-
-            try
-            {
-                if (!process.HasExited)
-                    process.Kill();
-            }
-            catch
-            {
-            }
-
-            return false;
         }
 
         private sealed class Stm32CubeProgrammerApi : IDisposable

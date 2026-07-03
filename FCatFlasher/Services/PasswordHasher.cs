@@ -1,13 +1,19 @@
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 
 namespace FCatFlasher.Services
 {
+/// <summary>
+/// Створює і перевіряє PBKDF2-хеші паролів для офлайн-логіну.
+/// </summary>
     internal static class PasswordHasher
     {
         private const int SaltSize = 16;
         private const int HashSize = 32;
         private const int Iterations = 100_000;
 
+/// <summary>
+/// Генерує salted PBKDF2-хеш для збереження у локальній базі.
+/// </summary>
         public static string Hash(string password)
         {
             byte[] salt = RandomNumberGenerator.GetBytes(SaltSize);
@@ -21,6 +27,9 @@ namespace FCatFlasher.Services
             return $"{Iterations}.{Convert.ToBase64String(salt)}.{Convert.ToBase64String(hash)}";
         }
 
+/// <summary>
+/// Перевіряє пароль проти збереженого salt/hash рядка.
+/// </summary>
         public static bool Verify(string password, string storedHash)
         {
             string[] parts = storedHash.Split('.');

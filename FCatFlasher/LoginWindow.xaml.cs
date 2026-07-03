@@ -1,9 +1,12 @@
-using FCatFlasher.Models;
+﻿using FCatFlasher.Models;
 using FCatFlasher.Services;
 using System.Windows;
 
 namespace FCatFlasher
 {
+/// <summary>
+/// Діалог авторизації оператора.
+/// </summary>
     public partial class LoginWindow : Window
     {
         private readonly AuthenticationService _authenticationService;
@@ -18,6 +21,9 @@ namespace FCatFlasher
 
         internal CurrentUser? CurrentUser { get; private set; }
 
+/// <summary>
+/// Перевіряє введені облікові дані та закриває діалог при успіху.
+/// </summary>
         private void LoginButton_Click(object sender, RoutedEventArgs e)
         {
             try
@@ -44,6 +50,9 @@ namespace FCatFlasher
             DialogResult = true;
         }
 
+/// <summary>
+/// Скасовує авторизацію і закриває застосунок.
+/// </summary>
         private void CancelButton_Click(object sender, RoutedEventArgs e)
         {
             DialogResult = false;

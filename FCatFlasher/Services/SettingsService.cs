@@ -4,6 +4,9 @@ using System.Text.Json;
 
 namespace FCatFlasher.Services
 {
+/// <summary>
+/// Читає і записує користувацькі налаштування у settings.json.
+/// </summary>
     internal class SettingsService
     {
         private const string FileName = "settings.json";
@@ -26,6 +29,9 @@ namespace FCatFlasher.Services
             }
         }
 
+/// <summary>
+/// Зберігає налаштування у JSON-файл поруч із застосунком.
+/// </summary>
         public void Save(AppSettings settings)
         {
             try

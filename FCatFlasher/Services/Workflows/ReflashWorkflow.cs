@@ -1,5 +1,8 @@
-namespace FCatFlasher.Services.Workflows
+﻿namespace FCatFlasher.Services.Workflows
 {
+/// <summary>
+/// Описує перехід від rework-тесту до rework-прошивки.
+/// </summary>
     internal sealed class ReflashWorkflow
     {
         private const int PowerOffBeforeStlinkDelayMs = 200;
@@ -9,6 +12,9 @@ namespace FCatFlasher.Services.Workflows
         private readonly Func<string, int, bool, Task> _sendStandCommand;
         private readonly Func<Task> _startFlashing;
 
+/// <summary>
+/// Приймає делегати ViewModel для команд стенду і запуску прошивки.
+/// </summary>
         public ReflashWorkflow(
             Func<string, int, bool, Task> sendStandCommand,
             Func<Task> startFlashing)
@@ -17,6 +23,9 @@ namespace FCatFlasher.Services.Workflows
             _startFlashing = startFlashing;
         }
 
+/// <summary>
+/// Перемикає стенд у ST-LINK режим і стартує rework-прошивку.
+/// </summary>
         public async Task FlashAfterSuccessfulTest()
         {
             await _sendStandCommand("POWER_OFF", PowerOffBeforeStlinkDelayMs, true);

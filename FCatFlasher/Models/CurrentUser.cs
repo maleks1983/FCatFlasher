@@ -1,5 +1,8 @@
-namespace FCatFlasher.Models
+﻿namespace FCatFlasher.Models
 {
+/// <summary>
+/// Поточний оператор застосунку та ознака офлайн-режиму.
+/// </summary>
     internal class CurrentUser
     {
         public string Id { get; set; } = string.Empty;

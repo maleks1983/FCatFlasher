@@ -1,4 +1,4 @@
-using FCatFlasher.Models;
+﻿using FCatFlasher.Models;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -6,6 +6,9 @@ using System.Text.Json;
 
 namespace FCatFlasher.Services
 {
+/// <summary>
+/// HTTP-клієнт для авторизації, реєстрацій, коробок і rework-даних у Spring Boot API.
+/// </summary>
     internal class ApiService(string baseUrl)
     {
         private readonly HttpClient _httpClient = new()
@@ -16,6 +19,9 @@ namespace FCatFlasher.Services
 
         private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
+/// <summary>
+/// Авторизує оператора на сервері та зберігає bearer-токен для наступних запитів.
+/// </summary>
         public CurrentUser? Login(string username, string password)
         {
             var response = Post<LoginRequest, LoginResponse>(
@@ -37,6 +43,9 @@ namespace FCatFlasher.Services
             };
         }
 
+/// <summary>
+/// Надсилає на сервер реєстрацію протестованої або прошитої плати.
+/// </summary>
         public void AddDeviceRegistration(
             string userId,
             string serialNumber,
@@ -55,6 +64,9 @@ namespace FCatFlasher.Services
                     Environment.MachineName));
         }
 
+/// <summary>
+/// Надсилає звіт заповненої виробничої коробки.
+/// </summary>
         public void AddBoxReport(string userId, BoxReport report)
         {
             Post(
@@ -70,6 +82,9 @@ namespace FCatFlasher.Services
                     Environment.MachineName));
         }
 
+/// <summary>
+/// Надсилає результат rework-прошивки для конкретного замовлення.
+/// </summary>
         public void AddReworkRegistration(
             string userId,
             string orderId,
@@ -94,11 +109,17 @@ namespace FCatFlasher.Services
                     result));
         }
 
+/// <summary>
+/// Завантажує з сервера історію виробничих коробок.
+/// </summary>
         public IReadOnlyList<BoxReport> LoadBoxReports()
         {
             return Get<List<BoxReport>>("api/box-reports") ?? new List<BoxReport>();
         }
 
+/// <summary>
+/// Рахує серверні реєстрації плат від заданої дати за типом операції.
+/// </summary>
         public int CountDeviceRegistrationsFrom(DateTime from, string registrationType)
         {
             string fromText = Uri.EscapeDataString(from.Date.ToString("O"));
@@ -108,6 +129,9 @@ namespace FCatFlasher.Services
             return response?.Count ?? 0;
         }
 
+/// <summary>
+/// Завантажує параметри rework-замовлення для flasher-режиму.
+/// </summary>
         public ReworkOrderInfo? LoadReworkOrder(string orderId)
         {
             if (string.IsNullOrWhiteSpace(orderId))
@@ -127,6 +151,9 @@ namespace FCatFlasher.Services
             };
         }
 
+/// <summary>
+/// Виконує синхронний GET і десеріалізує JSON-відповідь.
+/// </summary>
         private TResponse? Get<TResponse>(string url)
         {
             using HttpResponseMessage response = _httpClient
@@ -143,6 +170,9 @@ namespace FCatFlasher.Services
                 .GetResult();
         }
 
+/// <summary>
+/// Виконує POST і кидає виняток, якщо сервер повернув помилку.
+/// </summary>
         private void Post<TRequest>(string url, TRequest request)
         {
             using HttpResponseMessage response = _httpClient
@@ -153,6 +183,9 @@ namespace FCatFlasher.Services
             response.EnsureSuccessStatusCode();
         }
 
+/// <summary>
+/// Виконує POST із JSON-відповіддю.
+/// </summary>
         private TResponse? Post<TRequest, TResponse>(string url, TRequest request)
         {
             using HttpResponseMessage response = _httpClient
@@ -169,6 +202,9 @@ namespace FCatFlasher.Services
                 .GetResult();
         }
 
+/// <summary>
+/// Нормалізує базову адресу API та додає завершальний slash.
+/// </summary>
         private static string NormalizeBaseUrl(string baseUrl)
         {
             if (string.IsNullOrWhiteSpace(baseUrl))
@@ -224,6 +260,9 @@ namespace FCatFlasher.Services
             string FirmwarePath);
     }
 
+/// <summary>
+/// Дані rework-замовлення, які потрібні flasher-додатку.
+/// </summary>
     internal class ReworkOrderInfo
     {
         public string OrderId { get; set; } = string.Empty;

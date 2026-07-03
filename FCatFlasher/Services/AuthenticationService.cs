@@ -1,7 +1,10 @@
-using FCatFlasher.Models;
+﻿using FCatFlasher.Models;
 
 namespace FCatFlasher.Services
 {
+/// <summary>
+/// Обєднує онлайн-логін через API та fallback-логін із локального кешу.
+/// </summary>
     internal class AuthenticationService(
         ApiService apiService,
         LocalDatabaseService localDatabaseService)
@@ -9,6 +12,9 @@ namespace FCatFlasher.Services
         public string? LastLoginError { get; private set; }
         public string? LastSyncError { get; private set; }
 
+/// <summary>
+/// Авторизує користувача онлайн або, якщо API недоступний, через локальну базу.
+/// </summary>
         public CurrentUser? Login(string username, string password)
         {
             LastLoginError = null;
@@ -50,6 +56,9 @@ namespace FCatFlasher.Services
             }
         }
 
+/// <summary>
+/// Дозволяє тестовий логін без сервера для локальної перевірки застосунку.
+/// </summary>
         private static CurrentUser? LoginForTesting(string username, string password)
         {
             if (!string.Equals(username.Trim(), "admin", StringComparison.OrdinalIgnoreCase) ||

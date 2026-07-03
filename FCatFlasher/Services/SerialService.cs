@@ -3,6 +3,9 @@ using System.Text;
 
 namespace FCatFlasher.Services
 {
+/// <summary>
+/// Обгортка над SerialPort для команд стенду і line-based UART подій.
+/// </summary>
     internal class SerialService
     {
         private const int OpenSettleDelayMs = 800;
@@ -12,6 +15,9 @@ namespace FCatFlasher.Services
         public bool IsOpen => _port?.IsOpen == true;
         public event Action<string>? DataReceived;
 
+/// <summary>
+/// Відкриває COM-порт і підписується на вхідні дані.
+/// </summary>
         public void Open(string portName, int baud = 115200)
         {
             Close();
@@ -34,6 +40,9 @@ namespace FCatFlasher.Services
             _port.DataReceived += OnDataReceivedRaw;
         }
 
+/// <summary>
+/// Накопичує байти з порту та емінить готові рядки.
+/// </summary>
         private void OnDataReceivedRaw(object sender, SerialDataReceivedEventArgs e)
         {
             try
@@ -62,6 +71,9 @@ namespace FCatFlasher.Services
             }
         }
 
+/// <summary>
+/// Знаходить перший CR/LF розділювач у буфері UART.
+/// </summary>
         private static (int Index, int Length) IndexOfLineEnding(StringBuilder buffer)
         {
             for (int i = 0; i < buffer.Length; i++)
@@ -84,6 +96,9 @@ namespace FCatFlasher.Services
             return (-1, 0);
         }
 
+/// <summary>
+/// Надсилає команду стенду з завершенням рядка.
+/// </summary>
         public void Send(string command)
         {
             if (_port?.IsOpen == true)
@@ -92,6 +107,9 @@ namespace FCatFlasher.Services
             }
         }
 
+/// <summary>
+/// Закриває COM-порт і очищає внутрішній буфер.
+/// </summary>
         public void Close()
         {
             if (_port?.IsOpen == true)
@@ -103,6 +121,9 @@ namespace FCatFlasher.Services
             }
             _buffer.Clear();
         }
+/// <summary>
+/// Очищає програмний і апаратні буфери порту.
+/// </summary>
         public void ClearBuffers()
         {
             if (_port == null || !_port.IsOpen)

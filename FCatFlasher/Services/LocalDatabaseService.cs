@@ -1,13 +1,19 @@
-using FCatFlasher.Models;
+﻿using FCatFlasher.Models;
 using Microsoft.Data.Sqlite;
 using System.IO;
 
 namespace FCatFlasher.Services
 {
+/// <summary>
+/// SQLite-сховище для офлайн-логіну, черги реєстрацій, rework і коробок.
+/// </summary>
     internal class LocalDatabaseService
     {
         private readonly string _connectionString;
 
+/// <summary>
+/// Створює connection string до локальної бази у LocalApplicationData.
+/// </summary>
         public LocalDatabaseService()
         {
             string databasePath = Path.Combine(
@@ -23,6 +29,9 @@ namespace FCatFlasher.Services
             }.ToString();
         }
 
+/// <summary>
+/// Створює таблиці та виконує легкі міграції локальної схеми.
+/// </summary>
         public void Initialize()
         {
             using var connection = OpenConnection();
@@ -85,6 +94,9 @@ namespace FCatFlasher.Services
             EnsureUniquePendingReworkSerials(connection);
         }
 
+/// <summary>
+/// Кешує користувача для майбутнього офлайн-логіну.
+/// </summary>
         public void CacheUser(CurrentUser user, string password)
         {
             using var connection = OpenConnection();
@@ -108,6 +120,9 @@ namespace FCatFlasher.Services
             command.ExecuteNonQuery();
         }
 
+/// <summary>
+/// Авторизує користувача за локально збереженим хешем пароля.
+/// </summary>
         public CurrentUser? LoginOffline(string username, string password)
         {
             using var connection = OpenConnection();
@@ -142,6 +157,9 @@ namespace FCatFlasher.Services
             };
         }
 
+/// <summary>
+/// Додає або оновлює локальну реєстрацію плати для майбутньої синхронізації.
+/// </summary>
         public void AddPendingDeviceRegistration(
             string userId,
             string orderId,
@@ -185,6 +203,9 @@ namespace FCatFlasher.Services
             command.ExecuteNonQuery();
         }
 
+/// <summary>
+/// Зберігає локальний звіт коробки, якщо API недоступний.
+/// </summary>
         public void AddPendingBoxReport(string userId, BoxReport report)
         {
             using var connection = OpenConnection();
@@ -210,6 +231,9 @@ namespace FCatFlasher.Services
             command.ExecuteNonQuery();
         }
 
+/// <summary>
+/// Зберігає локальний rework-запис для подальшої синхронізації.
+/// </summary>
         public void AddPendingReworkRegistration(
             string userId,
             string orderId,
@@ -257,16 +281,25 @@ namespace FCatFlasher.Services
             command.ExecuteNonQuery();
         }
 
+/// <summary>
+/// Завантажує всі локальні звіти коробок.
+/// </summary>
         public IReadOnlyList<BoxReport> LoadPendingBoxReports()
         {
             return LoadPendingBoxReportsFrom(null);
         }
 
+/// <summary>
+/// Завантажує локальні коробки, створені від заданої дати.
+/// </summary>
         public IReadOnlyList<BoxReport> LoadPendingBoxReportsFrom(DateTime from)
         {
             return LoadPendingBoxReportsFrom(from.Date.Ticks);
         }
 
+/// <summary>
+/// Виконує SQL-запит локальних коробок із необовязковою нижньою межею часу.
+/// </summary>
         private IReadOnlyList<BoxReport> LoadPendingBoxReportsFrom(long? fromTicks)
         {
             var reports = new List<BoxReport>();
@@ -303,11 +336,17 @@ namespace FCatFlasher.Services
             return reports;
         }
 
+/// <summary>
+/// Повертає агреговані локальні rework-записи за замовленням і прошивкою.
+/// </summary>
         public IReadOnlyList<ReworkSummary> LoadPendingReworkSummaries()
         {
             return LoadPendingReworkSummariesFrom(null);
         }
 
+/// <summary>
+/// Формує локальний звіт виробничих прошивок за період.
+/// </summary>
         public IReadOnlyList<FirmwareReportRow> LoadProductionFirmwareReport(DateTime from, DateTime to)
         {
             var rows = new List<FirmwareReportRow>();
@@ -350,6 +389,9 @@ namespace FCatFlasher.Services
             return rows;
         }
 
+/// <summary>
+/// Формує локальний звіт rework-прошивок за період.
+/// </summary>
         public IReadOnlyList<FirmwareReportRow> LoadReworkFirmwareReport(DateTime from, DateTime to)
         {
             var rows = new List<FirmwareReportRow>();
@@ -393,11 +435,17 @@ namespace FCatFlasher.Services
             return rows;
         }
 
+/// <summary>
+/// Повертає агреговані rework-записи від заданої дати.
+/// </summary>
         public IReadOnlyList<ReworkSummary> LoadPendingReworkSummariesFrom(DateTime from)
         {
             return LoadPendingReworkSummariesFrom(from.Date.Ticks);
         }
 
+/// <summary>
+/// Виконує SQL-агрегацію rework-записів із необовязковою датою старту.
+/// </summary>
         private IReadOnlyList<ReworkSummary> LoadPendingReworkSummariesFrom(long? fromTicks)
         {
             var summaries = new List<ReworkSummary>();
@@ -438,6 +486,9 @@ namespace FCatFlasher.Services
             return summaries;
         }
 
+/// <summary>
+/// Повертає локально відомі дані rework-замовлення.
+/// </summary>
         public ReworkOrderInfo? LoadPendingReworkOrder(string orderId)
         {
             if (string.IsNullOrWhiteSpace(orderId))
@@ -470,6 +521,9 @@ namespace FCatFlasher.Services
             };
         }
 
+/// <summary>
+/// Видаляє локальні rework-записи для вибраного замовлення і прошивки.
+/// </summary>
         public void DeletePendingReworks(string orderId, string firmwareName)
         {
             using var connection = OpenConnection();
@@ -488,6 +542,9 @@ namespace FCatFlasher.Services
             command.ExecuteNonQuery();
         }
 
+/// <summary>
+/// Завантажує локальну чергу реєстрацій плат для показу оператору.
+/// </summary>
         public IReadOnlyList<PendingRegistration> LoadPendingRegistrations()
         {
             var registrations = new List<PendingRegistration>();
@@ -540,6 +597,9 @@ namespace FCatFlasher.Services
             return registrations;
         }
 
+/// <summary>
+/// Рахує локальні реєстрації плат від дати за типом операції.
+/// </summary>
         public int CountPendingDeviceRegistrationsFrom(DateTime from, string registrationType)
         {
             using var connection = OpenConnection();
@@ -559,6 +619,9 @@ namespace FCatFlasher.Services
             return Convert.ToInt32(command.ExecuteScalar());
         }
 
+/// <summary>
+/// Рахує локальні rework-записи від заданої дати.
+/// </summary>
         public int CountPendingReworksFrom(DateTime from)
         {
             using var connection = OpenConnection();
@@ -576,6 +639,9 @@ namespace FCatFlasher.Services
             return Convert.ToInt32(command.ExecuteScalar());
         }
 
+/// <summary>
+/// Синхронізує всі локальні черги з API.
+/// </summary>
         public void SyncPending(ApiService apiService)
         {
             SyncPendingDevices(apiService);
@@ -583,6 +649,9 @@ namespace FCatFlasher.Services
             SyncPendingReworks(apiService);
         }
 
+/// <summary>
+/// Відправляє локальні реєстрації плат і видаляє успішно синхронізовані.
+/// </summary>
         private void SyncPendingDevices(ApiService apiService)
         {
             using var connection = OpenConnection();
@@ -612,6 +681,9 @@ namespace FCatFlasher.Services
             }
         }
 
+/// <summary>
+/// Відправляє локальні коробки і видаляє успішно синхронізовані.
+/// </summary>
         private void SyncPendingBoxes(ApiService apiService)
         {
             using var connection = OpenConnection();
@@ -646,6 +718,9 @@ namespace FCatFlasher.Services
             }
         }
 
+/// <summary>
+/// Відправляє локальні rework-записи і видаляє успішно синхронізовані.
+/// </summary>
         private void SyncPendingReworks(ApiService apiService)
         {
             using var connection = OpenConnection();
@@ -678,6 +753,9 @@ namespace FCatFlasher.Services
             }
         }
 
+/// <summary>
+/// Видаляє запис із локальної таблиці за id.
+/// </summary>
         private void DeleteById(string tableName, int id)
         {
             using var connection = OpenConnection();
@@ -688,6 +766,9 @@ namespace FCatFlasher.Services
             command.ExecuteNonQuery();
         }
 
+/// <summary>
+/// Додає колонку в існуючу таблицю, якщо її ще немає.
+/// </summary>
         private static void EnsureColumn(
             SqliteConnection connection,
             string tableName,
@@ -712,6 +793,9 @@ namespace FCatFlasher.Services
             alterCommand.ExecuteNonQuery();
         }
 
+/// <summary>
+/// Мігрує cached_users до текстового user_id без втрати кешу.
+/// </summary>
         private static void EnsureCachedUsersTextId(SqliteConnection connection)
         {
             using var checkCommand = connection.CreateCommand();
@@ -755,6 +839,9 @@ namespace FCatFlasher.Services
             migrateCommand.ExecuteNonQuery();
         }
 
+/// <summary>
+/// Прибирає дублікати rework-серійників і створює унікальний індекс.
+/// </summary>
         private static void EnsureUniquePendingReworkSerials(SqliteConnection connection)
         {
             using var command = connection.CreateCommand();
@@ -844,6 +931,9 @@ namespace FCatFlasher.Services
             command.ExecuteNonQuery();
         }
 
+/// <summary>
+/// Повертає назву файлу з повного шляху без залежності від типу slash.
+/// </summary>
         private static string GetFileNameFromPath(string path)
         {
             if (string.IsNullOrWhiteSpace(path))
@@ -859,6 +949,9 @@ namespace FCatFlasher.Services
                 : trimmedPath;
         }
 
+/// <summary>
+/// Будує inclusive ticks-діапазон для дат звіту.
+/// </summary>
         private static (long FromTicks, long ToTicks) GetInclusiveDateRangeTicks(DateTime from, DateTime to)
         {
             DateTime fromDate = from.Date;
@@ -870,6 +963,9 @@ namespace FCatFlasher.Services
             return (fromDate.Ticks, toExclusive.Ticks);
         }
 
+/// <summary>
+/// Нормалізує назву MCU до коротких значень G0/C0, коли можливо.
+/// </summary>
         private static string NormalizeMcuName(string mcuName)
         {
             return mcuName switch
@@ -880,6 +976,9 @@ namespace FCatFlasher.Services
             };
         }
 
+/// <summary>
+/// Відкриває SQLite-зєднання для локальних операцій.
+/// </summary>
         private SqliteConnection OpenConnection()
         {
             var connection = new SqliteConnection(_connectionString);

@@ -1,8 +1,11 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Windows;
 
 namespace FCatFlasher
 {
+/// <summary>
+/// Діалог введення виробничої назви прошивки та кількості у коробці.
+/// </summary>
     public partial class ProductionStartWindow : Window
     {
         public ProductionStartWindow(string firmwareName = "", int boxQuantity = 0)
@@ -22,6 +25,9 @@ namespace FCatFlasher
 
         public int BoxQuantity { get; private set; }
 
+/// <summary>
+/// Валідує стартові параметри виробництва і закриває діалог при успіху.
+/// </summary>
         private void OkButton_Click(object sender, RoutedEventArgs e)
         {
             string firmwareName = FirmwareNameTextBox.Text.Trim();
@@ -46,6 +52,9 @@ namespace FCatFlasher
             DialogResult = true;
         }
 
+/// <summary>
+/// Закриває діалог без старту виробництва.
+/// </summary>
         private void CancelButton_Click(object sender, RoutedEventArgs e)
         {
             DialogResult = false;

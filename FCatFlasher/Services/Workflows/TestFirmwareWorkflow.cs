@@ -1,5 +1,8 @@
-namespace FCatFlasher.Services.Workflows
+﻿namespace FCatFlasher.Services.Workflows
 {
+/// <summary>
+/// Ізолює сценарій заливки тестової прошивки без залежності від WPF.
+/// </summary>
     internal sealed class TestFirmwareWorkflow
     {
         private const int BuzzerOkDelayMs = 200;
@@ -21,6 +24,9 @@ namespace FCatFlasher.Services.Workflows
         private readonly Func<Task> _waitBoardRemoved;
         private readonly Func<Task> _waitBoardRemovedAfterError;
 
+/// <summary>
+/// Приймає делегати стану, логування, прошивки та очікування плати.
+/// </summary>
         public TestFirmwareWorkflow(
             Action setFlashingState,
             Action setWaitingRemoveState,
@@ -57,6 +63,9 @@ namespace FCatFlasher.Services.Workflows
             _waitBoardRemovedAfterError = waitBoardRemovedAfterError;
         }
 
+/// <summary>
+/// Виконує повний сценарій прошивки тестового firmware і обробляє помилки.
+/// </summary>
         public async Task FlashOnlyTestFirmware()
         {
             try
@@ -129,6 +138,9 @@ namespace FCatFlasher.Services.Workflows
             }
         }
 
+/// <summary>
+/// Переводить стан в очікування зняття плати після помилки.
+/// </summary>
         private async Task WaitBoardRemovedAfterFailure()
         {
             _setWaitingRemoveState();

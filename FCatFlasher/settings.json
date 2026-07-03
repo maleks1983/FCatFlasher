@@ -8,6 +8,5 @@
   "C0FirmwarePath": "D:\\flesh\\c011_fpv_5hod.hex",
   "ReworkOrderId": "59001693732360",
   "TestFirmwareDirectory": "C:\\Program Files\\STMicroelectronics\\Flash\\",
-  "StmCubeCliPath": "C:\\Program Files\\STMicroelectronics\\STM32Cube\\STM32CubeProgrammer\\bin\\STM32_Programmer_CLI.exe",
   "ApiBaseUrl": "http://localhost:8080"
 }

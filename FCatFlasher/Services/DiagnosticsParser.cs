@@ -1,5 +1,8 @@
-namespace FCatFlasher.Services
+﻿namespace FCatFlasher.Services
 {
+/// <summary>
+/// Парсить UART-звіт автотесту та визначає результат діагностики.
+/// </summary>
     internal class DiagnosticsParser
     {
         private bool _isReceiving;
@@ -9,6 +12,9 @@ namespace FCatFlasher.Services
         public string LastReport { get; private set; } = string.Empty;
         public string LastMcuSerial { get; private set; } = string.Empty;
 
+/// <summary>
+/// Очищає накопичений звіт і останні діагностичні значення.
+/// </summary>
         public void Reset()
         {
             _isReceiving = false;
@@ -18,6 +24,9 @@ namespace FCatFlasher.Services
             LastMcuSerial = string.Empty;
         }
 
+/// <summary>
+/// Обробляє один рядок UART-звіту; повертає null, поки звіт не завершився.
+/// </summary>
         public bool? ProcessLine(string line)
         {
             if (line == "DIAGNOSTICS REPORT BEGIN")
@@ -38,6 +47,9 @@ namespace FCatFlasher.Services
             return IsDiagnosticsOk(_report);
         }
 
+/// <summary>
+/// Перевіряє, чи всі контрольні поля звіту мають очікувані значення.
+/// </summary>
         private bool IsDiagnosticsOk(string report)
         {
             Dictionary<string, string> values = ParseReportValues(report);
@@ -55,6 +67,9 @@ namespace FCatFlasher.Services
                    IsReportOk(values, "BUZ");
         }
 
+/// <summary>
+/// Розбирає текстовий звіт у словник ключ-значення.
+/// </summary>
         private static Dictionary<string, string> ParseReportValues(string report)
         {
             var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -75,12 +90,18 @@ namespace FCatFlasher.Services
             return values;
         }
 
+/// <summary>
+/// Перевіряє булеве поле звіту у форматі OK.
+/// </summary>
         private static bool IsReportOk(IReadOnlyDictionary<string, string> values, string key)
         {
             return values.TryGetValue(key, out string? value) &&
                    value.Equals("OK", StringComparison.OrdinalIgnoreCase);
         }
 
+/// <summary>
+/// Безпечно зчитує числове поле звіту.
+/// </summary>
         private static int GetReportInt(IReadOnlyDictionary<string, string> values, string key)
         {
             if (!values.TryGetValue(key, out string? value))
@@ -89,6 +110,9 @@ namespace FCatFlasher.Services
             return int.TryParse(value, out int result) ? result : 0;
         }
 
+/// <summary>
+/// Безпечно зчитує текстове поле звіту.
+/// </summary>
         private static string GetReportText(IReadOnlyDictionary<string, string> values, string key)
         {
             if (!values.TryGetValue(key, out string? value))
@@ -97,6 +121,9 @@ namespace FCatFlasher.Services
             return value;
         }
 
+/// <summary>
+/// Нормалізує серійний номер MCU з тестового звіту.
+/// </summary>
         private static string NormalizeMcuSerial(string serial)
         {
             return new string(

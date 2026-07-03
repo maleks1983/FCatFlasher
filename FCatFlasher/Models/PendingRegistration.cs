@@ -1,7 +1,10 @@
-using System.Globalization;
+﻿using System.Globalization;
 
 namespace FCatFlasher.Models
 {
+/// <summary>
+/// Локально збережена реєстрація плати, що очікує синхронізації.
+/// </summary>
     public class PendingRegistration
     {
         public string OrderId { get; set; } = string.Empty;

@@ -13,9 +13,11 @@ using System.Windows;
 using System.Windows.Input;
 using System.Windows.Threading;
 
-
 namespace FCatFlasher.ViewModels
 {
+/// <summary>
+/// Головна ViewModel: координує режими тесту, прошивки, rework, UI-стан, стенд і локальну/API реєстрацію.
+/// </summary>
     internal class MainViewModel : INotifyPropertyChanged
     {
         private const int PowerOffBeforeRestartDelayMs = 300;
@@ -31,8 +33,6 @@ namespace FCatFlasher.ViewModels
         private const int StlinkModeSwitchDelayMs = 100;
         private const int BuzzerOkDelayMs = 100;
         private const int CycleErrorDelayMs = 2000;
-        private const int StlinkConnectionCheckTimeoutMs = 1000;
-        private const int BoardRemovalCheckTimeoutMs = 250;
         private const string TestRegistrationType = "TEST";
         private const string ProductionRegistrationType = "PRODUCTION";
         private const string ReworkRegistrationType = "REWORK";
@@ -65,7 +65,6 @@ namespace FCatFlasher.ViewModels
         private bool _measureBoardCycleTime;
         private bool _singleProductionFlash;
         private bool _testOnlyMode;
-        private bool _optimizeFlashMode;
         private bool _startRunTimerOnBoardDetected;
         private bool _startingFlashAfterSerial;
         private bool _productionBoxTimerStarted;
@@ -101,7 +100,6 @@ namespace FCatFlasher.ViewModels
 
         public RelayCommand TestFirmwareCommand { get; }
         public RelayCommand TestOnlyCommand { get; }
-        public RelayCommand OptimizeFlashModeCommand { get; }
         public RelayCommand FlashCommand { get; }
         public RelayCommand SingleFlashCommand { get; }
         public RelayCommand ReflashCommand { get; }
@@ -113,7 +111,6 @@ namespace FCatFlasher.ViewModels
         public ICommand BrowseG0FirmwareCommand { get; }
         public ICommand BrowseC0FirmwareCommand { get; }
         public ICommand BrowseTestFirmwareDirectoryCommand { get; }
-        public ICommand BrowseStmCubeCliCommand { get; }
         public ICommand StopCommand { get; }
         public ICommand OpenProductionReportCommand { get; }
         public ICommand OpenReworkReportCommand { get; }
@@ -311,21 +308,7 @@ namespace FCatFlasher.ViewModels
             {
                 _testFirmwareDirectory = value;
                 OnPropertyChanged();
-                ApplyFlashSettings();
-                SaveSettings();
-            }
-        }
-
-        private string _stmCubeCliPath =
-            @"E:\InicaalDG\STM32CubeProgrammer\bin\STM32_Programmer_CLI.exe";
-        public string StmCubeCliPath
-        {
-            get => _stmCubeCliPath;
-            set
-            {
-                _stmCubeCliPath = value;
-                OnPropertyChanged();
-                ApplyFlashSettings();
+                _testFirmwareService.TestFirmwareDirectory = _testFirmwareDirectory;
                 SaveSettings();
             }
         }
@@ -342,6 +325,20 @@ namespace FCatFlasher.ViewModels
             }
         }
 
+        private bool _useOptimizedProductionFlashMode = true;
+        public bool UseOptimizedProductionFlashMode
+        {
+            get => _useOptimizedProductionFlashMode;
+            set
+            {
+                if (_useOptimizedProductionFlashMode == value)
+                    return;
+
+                _useOptimizedProductionFlashMode = value;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
         private bool _isBusy;
         public bool IsBusy
         {
@@ -353,7 +350,6 @@ namespace FCatFlasher.ViewModels
 
                 TestFirmwareCommand.RaiseCanExecuteChanged();
                 TestOnlyCommand.RaiseCanExecuteChanged();
-                OptimizeFlashModeCommand.RaiseCanExecuteChanged();
                 FlashCommand.RaiseCanExecuteChanged();
                 ReflashCommand.RaiseCanExecuteChanged();
                 ReflashTestFirmwareCommand.RaiseCanExecuteChanged();
@@ -573,46 +569,6 @@ namespace FCatFlasher.ViewModels
                 () => !IsBusy
             );
 
-            OptimizeFlashModeCommand = new RelayCommand(
-                async () =>
-                {
-                    if (!RequestProductionStartData())
-                        return;
-
-                    if (!EnsureConnected())
-                        return;
-
-                    _workMode = WorkMode.Production;
-                    _optimizeFlashMode = true;
-                    _skipFlashRegistration = true;
-                    _stlinkSelectedForRun = false;
-                    _productionBoxActive = false;
-                    ResetUniqueFlashedCounter();
-                    LoadLocalDataForCurrentTab();
-                    ResetRunTimer();
-                    Log = "";
-                    ProgressValue = 0;
-                    IsBusy = true;
-
-                    try
-                    {
-                        StartRunTimer();
-                        await StartTest();
-                    }
-                    catch (Exception ex)
-                    {
-                        _optimizeFlashMode = false;
-                        _skipFlashRegistration = false;
-                        Status = "Error";
-                        Log += "ERROR: " + ex.Message + "\n";
-                        StopRunTimer();
-                        IsBusy = false;
-                        _cycleState = CycleState.Idle;
-                    }
-                },
-                () => !IsBusy
-            );
-
             FlashCommand = new RelayCommand(
                 async () =>
                 {
@@ -713,7 +669,6 @@ namespace FCatFlasher.ViewModels
             BrowseG0FirmwareCommand = new RelayCommand(BrowseG0Firmware);
             BrowseC0FirmwareCommand = new RelayCommand(BrowseC0Firmware);
             BrowseTestFirmwareDirectoryCommand = new RelayCommand(BrowseTestFirmwareDirectory);
-            BrowseStmCubeCliCommand = new RelayCommand(BrowseStmCubeCli);
             OpenSettingsCommand = new RelayCommand(OpenSettings);
             SyncPendingCommand = new RelayCommand(SyncPendingData, () => !IsBusy);
             StopCommand = new RelayCommand(async () => await StopAll());
@@ -730,6 +685,9 @@ namespace FCatFlasher.ViewModels
             _settingsLoaded = true;
         }
 
+        /// <summary>
+        /// Відкриває вікно налаштувань із поточним ViewModel як DataContext.
+        /// </summary>
         private void OpenSettings()
         {
             var window = new SettingsWindow
@@ -741,6 +699,9 @@ namespace FCatFlasher.ViewModels
             window.ShowDialog();
         }
 
+        /// <summary>
+        /// Синхронізує локально збережені реєстрації та коробки з API.
+        /// </summary>
         private void SyncPendingData()
         {
             if (_currentUser.IsOffline)
@@ -763,6 +724,9 @@ namespace FCatFlasher.ViewModels
             }
         }
 
+        /// <summary>
+        /// Відкриває звіт для виробничих або rework-операцій.
+        /// </summary>
         private void OpenReportWindow(bool isReworkReport)
         {
             var window = new global::FCatFlasher.ReportWindow(_localDatabaseService, isReworkReport)
@@ -773,6 +737,9 @@ namespace FCatFlasher.ViewModels
             window.ShowDialog();
         }
 
+        /// <summary>
+        /// Перемикає режим лічильника у футері відповідно до активної вкладки.
+        /// </summary>
         public void SetFooterMode(string? tabHeader)
         {
             switch (tabHeader)
@@ -797,6 +764,9 @@ namespace FCatFlasher.ViewModels
             LoadLocalDataForCurrentTab();
         }
 
+        /// <summary>
+        /// Запитує номер замовлення для rework-режиму та оновлює пов'язані дані.
+        /// </summary>
         private bool RequestOrderId()
         {
             var window = new OrderIdWindow(ReworkOrderId, ReworkFirmwareName)
@@ -854,6 +824,9 @@ namespace FCatFlasher.ViewModels
             Log += "=== ORDER: дані перепрошивки взято з локальної бази ===\n";
         }
 
+        /// <summary>
+        /// Перевіряє стартові дані виробничого циклу: назву прошивки та кількість у коробці.
+        /// </summary>
         private bool RequestProductionStartData()
         {
             var window = new ProductionStartWindow(FirmwareName, BoxQuantity)
@@ -869,6 +842,9 @@ namespace FCatFlasher.ViewModels
             return true;
         }
 
+        /// <summary>
+        /// Оновлює список доступних COM-портів і підтримує поточний вибір валідним.
+        /// </summary>
         private void RefreshComPorts()
         {
             ComPorts.Clear();
@@ -880,6 +856,9 @@ namespace FCatFlasher.ViewModels
                 SelectedComPort = ComPorts[0];
         }
 
+        /// <summary>
+        /// Показує діалог вибору HEX-файлу прошивки.
+        /// </summary>
         private string? BrowseFirmwareFile()
         {
             var dialog = new OpenFileDialog
@@ -930,23 +909,9 @@ namespace FCatFlasher.ViewModels
                 TestFirmwareDirectory = dialog.FolderName;
         }
 
-        private void BrowseStmCubeCli()
-        {
-            var dialog = new OpenFileDialog
-            {
-                Title = "Оберіть STM32CubeProgrammer CLI",
-                Filter = "STM32Cube CLI (STM32_Programmer_CLI.exe)|STM32_Programmer_CLI.exe|Executable files (*.exe)|*.exe|All files (*.*)|*.*"
-            };
-
-            string? initialDirectory = System.IO.Path.GetDirectoryName(StmCubeCliPath);
-
-            if (!string.IsNullOrWhiteSpace(initialDirectory))
-                dialog.InitialDirectory = initialDirectory;
-
-            if (dialog.ShowDialog() == true)
-                StmCubeCliPath = dialog.FileName;
-        }
-
+        /// <summary>
+        /// Гарантує відкрите UART-з'єднання зі стендом перед запуском команд.
+        /// </summary>
         private bool EnsureConnected()
         {
             if (_serial.IsOpen)
@@ -976,6 +941,9 @@ namespace FCatFlasher.ViewModels
             }
         }
 
+        /// <summary>
+        /// Перевіряє, що серійний номер введено у форматі поточного режиму.
+        /// </summary>
         private bool EnsureSerialEntered()
         {
             if (!string.IsNullOrWhiteSpace(ScannedSerial))
@@ -1000,6 +968,9 @@ namespace FCatFlasher.ViewModels
             return ScannedSerial.Trim();
         }
 
+        /// <summary>
+        /// Запускає таймер загального часу циклу.
+        /// </summary>
         private void StartRunTimer()
         {
             ResetRunTimer();
@@ -1019,12 +990,17 @@ namespace FCatFlasher.ViewModels
             ResetRunTimer();
         }
 
+        /// <summary>
+        /// Стартує вимір часу виробничої коробки один раз для активного циклу.
+        /// </summary>
         private void StartProductionBoxTimerIfNeeded()
         {
             if (_workMode != WorkMode.Production || _productionBoxTimerStarted)
                 return;
 
             _productionBoxTimerStarted = true;
+            _startRunTimerOnBoardDetected = false;
+            _currentBoardStartedAt ??= DateTime.Now;
             StartRunTimer();
         }
 
@@ -1039,6 +1015,9 @@ namespace FCatFlasher.ViewModels
             RunElapsedText = elapsed.ToString(@"hh\:mm\:ss", CultureInfo.InvariantCulture);
         }
 
+        /// <summary>
+        /// Скидає дані поточної плати перед новим циклом.
+        /// </summary>
         private void ResetCycleData()
         {
             _currentBoardSerial = "";
@@ -1060,6 +1039,9 @@ namespace FCatFlasher.ViewModels
             }
         }
 
+        /// <summary>
+        /// Готує стан UI та запускає повний робочий цикл до зупинки або завершення.
+        /// </summary>
         private async Task StartFullCycle()
         {
             try
@@ -1084,11 +1066,32 @@ namespace FCatFlasher.ViewModels
             }
         }
 
+        /// <summary>
+        /// Вибирає стартовий сценарій: пропуск очікування плати для нового виробничого режиму або звичайне ST-LINK очікування.
+        /// </summary>
         private async Task StartModeCycle()
         {
+            if (ShouldSkipProductionBoardDetection())
+            {
+                Log += "=== Новий режим: плата вже на стенді, очікування плати пропущено ===\n";
+                await PrepareProductionWithDetectedMcu();
+                return;
+            }
+
             await StartStlinkBoardDetectionCycle();
         }
 
+        /// <summary>
+        /// Визначає, чи можна пропустити початкове очікування плати, бо вона вже на стенді.
+        /// </summary>
+        private bool ShouldSkipProductionBoardDetection()
+        {
+            return _workMode == WorkMode.Production && UseOptimizedProductionFlashMode;
+        }
+
+        /// <summary>
+        /// Перемикає стенд у ST-LINK режим і запускає очікування появи плати.
+        /// </summary>
         private async Task StartStlinkBoardDetectionCycle()
         {
             if (!_stlinkSelectedForRun)
@@ -1100,6 +1103,9 @@ namespace FCatFlasher.ViewModels
             await WaitBoardInserted();
         }
 
+        /// <summary>
+        /// Чекає плату на стенді, періодично подаючи живлення і перевіряючи зв'язок.
+        /// </summary>
         private async Task WaitBoardInserted()
         {
             Status = "Waiting board";
@@ -1169,13 +1175,23 @@ namespace FCatFlasher.ViewModels
             }
         }
 
+        /// <summary>
+        /// Готує виробничий сценарій після виявлення плати або після пропуску очікування.
+        /// </summary>
         private async Task PrepareProductionWithDetectedMcu()
         {
             try
             {
                 _cycleState = CycleState.Flashing;
                 _currentDeviceType = string.Empty;
-    
+
+                if (ShouldUseOptimizedProductionFlashMode())
+                {
+                    StartProductionBoxTimerIfNeeded();
+                    await StartTest();
+                    return;
+                }
+
                 if (!ValidateProductionFirmwareFileExists())
                 {
                     _cycleState = CycleState.WaitingRemove;
@@ -1203,6 +1219,9 @@ namespace FCatFlasher.ViewModels
             }
         }
 
+        /// <summary>
+        /// Переводить виробничий цикл у стан очікування серійного номера перед старим сценарієм тесту.
+        /// </summary>
         private void WaitProductionSerialBeforeTest()
         {
             _cycleState = CycleState.WaitingSerial;
@@ -1215,6 +1234,9 @@ namespace FCatFlasher.ViewModels
                 ScheduleNextStepAfterSerialEntered();
         }
 
+        /// <summary>
+        /// Логує помилку ST-LINK лише коли вона змінилась, щоб не дублювати шум.
+        /// </summary>
         private void LogConnectionErrorIfChanged()
         {
             string error = _firmwareService.LastConnectionError;
@@ -1233,6 +1255,9 @@ namespace FCatFlasher.ViewModels
             await _testFirmwareWorkflow.FlashOnlyTestFirmware();
         }
 
+        /// <summary>
+        /// Готує rework-цикл: визначає MCU, прошиває тестову прошивку і запускає тест.
+        /// </summary>
         private async Task PrepareReflashWithTestFirmware()
         {
             try
@@ -1318,6 +1343,9 @@ namespace FCatFlasher.ViewModels
             return await _testFirmwareService.FlashTestFirmwareForDevice(deviceType);
         }
 
+        /// <summary>
+        /// Зчитує тип MCU з повторною спробою після power-cycle у ST-LINK режимі.
+        /// </summary>
         private async Task<string> GetDeviceTypeWithRetry(string context)
         {
             string deviceType = await _firmwareService.GetDeviceType();
@@ -1416,6 +1444,9 @@ namespace FCatFlasher.ViewModels
             return !IsKnownDeviceType(result.DeviceType) ||
                    IsRecoverableStlinkFlashFailure(result.Output);
         }
+        /// <summary>
+        /// Перевіряє відповідність виробничої прошивки типу MCU перед записом.
+        /// </summary>
         private static string ValidateProductionFlashSessionDevice(string deviceType, string firmwarePath)
         {
             if (!IsKnownDeviceType(deviceType))
@@ -1439,6 +1470,9 @@ namespace FCatFlasher.ViewModels
                    result.Contains("timeout", StringComparison.OrdinalIgnoreCase);
         }
 
+        /// <summary>
+        /// Обробляє UART-дані тесту, визначає результат діагностики і переводить цикл далі.
+        /// </summary>
         private async void OnDataReceived(string data)
         {
             await Application.Current.Dispatcher.Invoke(async () =>
@@ -1474,7 +1508,14 @@ namespace FCatFlasher.ViewModels
 
                         if (_workMode == WorkMode.Production)
                         {
-                            if (!_singleProductionFlash)
+                            if (ShouldUseOptimizedProductionFlashMode() &&
+                                !_singleProductionFlash &&
+                                !CaptureProductionSerialAfterSuccessfulTest())
+                            {
+                                return;
+                            }
+
+                            if (!ShouldUseOptimizedProductionFlashMode() && !_singleProductionFlash)
                             {
                                 _currentBoardSerial = ScannedSerial.Trim();
                                 ScannedSerial = "";
@@ -1520,16 +1561,6 @@ namespace FCatFlasher.ViewModels
                         return;
                     }
 
-                    if (_optimizeFlashMode)
-                    {
-                        _optimizeFlashMode = false;
-                        _skipFlashRegistration = false;
-                        StopRunTimer();
-                        IsBusy = false;
-                        _cycleState = CycleState.Idle;
-                        return;
-                    }
-
                     await StopTestAndWaitRemove();
 
                     return;
@@ -1537,6 +1568,29 @@ namespace FCatFlasher.ViewModels
             });
         }
 
+        /// <summary>
+        /// Після успішного тесту фіксує виробничий серійник або переводить цикл в очікування серійника.
+        /// </summary>
+        private bool CaptureProductionSerialAfterSuccessfulTest()
+        {
+            if (IsSerialReadyForCurrentMode(ScannedSerial))
+            {
+                _currentBoardSerial = ScannedSerial.Trim();
+                ScannedSerial = "";
+                return true;
+            }
+
+            _cycleState = CycleState.WaitingSerial;
+            Status = "Waiting serial";
+            ProgressValue = 75;
+            IsSerialInputEnabled = true;
+            Log += ">>> Тест пройдено. Введіть серійний номер D + 7 цифр для початку прошивки...\n";
+            return false;
+        }
+
+        /// <summary>
+        /// Планує запуск наступного кроку після введення валідного серійного номера.
+        /// </summary>
         private void ScheduleNextStepAfterSerialEntered()
         {
             _serialEntryCts?.Cancel();
@@ -1545,6 +1599,9 @@ namespace FCatFlasher.ViewModels
             _ = StartNextStepAfterSerialEntered(_serialEntryCts.Token);
         }
 
+        /// <summary>
+        /// Запускає прошивку або тест після серійника, захищаючись від повторного старту.
+        /// </summary>
         private async Task StartNextStepAfterSerialEntered(CancellationToken cancellationToken)
         {
             try
@@ -1569,6 +1626,15 @@ namespace FCatFlasher.ViewModels
 
                 if (_workMode == WorkMode.Production)
                 {
+                    if (ShouldUseOptimizedProductionFlashMode())
+                    {
+                        _currentBoardSerial = ScannedSerial.Trim();
+                        ScannedSerial = "";
+                        IsSerialInputEnabled = true;
+                        await StopSuccessfulTestAndFlash();
+                        return;
+                    }
+
                     StartProductionBoxTimerIfNeeded();
                     await StartTest();
                     return;
@@ -1586,6 +1652,9 @@ namespace FCatFlasher.ViewModels
             }
         }
 
+        /// <summary>
+        /// Перевіряє серійний номер за правилами активного режиму роботи.
+        /// </summary>
         private bool IsSerialReadyForCurrentMode(string serial)
         {
             return _workMode == WorkMode.Production
@@ -1639,6 +1708,9 @@ namespace FCatFlasher.ViewModels
                 MessageBoxImage.Error);
         }
 
+        /// <summary>
+        /// Надсилає команду стенду з блокуванням паралельних команд і контрольованою затримкою.
+        /// </summary>
         private async Task SendStandCommand(
             string command,
             int settleDelayMs = StandCommandSettleDelayMs,
@@ -1671,6 +1743,9 @@ namespace FCatFlasher.ViewModels
             return command is "POWER_ON" or "POWER_OFF";
         }
 
+        /// <summary>
+        /// Оновлює локальний прапорець живлення стенда після POWER_ON або POWER_OFF.
+        /// </summary>
         private void UpdateStandPowerState(string command)
         {
             if (command == "POWER_ON")
@@ -1689,6 +1764,9 @@ namespace FCatFlasher.ViewModels
             await SendStandCommand("STLINK_ON", settleDelayMs);
         }
 
+        /// <summary>
+        /// Перемикає стенд у UART режим і гарантує подане живлення для тесту.
+        /// </summary>
         private async Task SetUartModeAndEnsurePowerOn(
             int powerOffDelayMs = UartPowerOffDelayMs,
             int modeSwitchDelayMs = UartModeSwitchDelayMs,
@@ -1699,6 +1777,9 @@ namespace FCatFlasher.ViewModels
             await SendStandCommand("POWER_ON", powerOnDelayMs, enforceMinimumDelay: false);
         }
 
+        /// <summary>
+        /// Перемикає комутацію на UART без вимкнення живлення плати.
+        /// </summary>
         private async Task SetUartModeKeepingPowerOn(
             int modeSwitchDelayMs = UartModeSwitchDelayMs,
             int powerOnDelayMs = 0)
@@ -1707,6 +1788,9 @@ namespace FCatFlasher.ViewModels
             await SendStandCommand("POWER_ON", powerOnDelayMs, enforceMinimumDelay: false);
         }
 
+        /// <summary>
+        /// Перемикає стенд у ST-LINK режим і подає живлення перед прошивкою.
+        /// </summary>
         private async Task SetStlinkModeAndEnsurePowerOn(
             int modeSwitchDelayMs = StlinkModeSwitchDelayMs,
             int powerOnDelayMs = UartPowerOnSettleDelayMs)
@@ -1717,6 +1801,9 @@ namespace FCatFlasher.ViewModels
             if (!powerAlreadyOn)
                 await SendStandCommand("POWER_ON", powerOnDelayMs, enforceMinimumDelay: false);
         }
+        /// <summary>
+        /// Виконує power-cycle плати у ST-LINK режимі для відновлення звязку.
+        /// </summary>
         private async Task PowerCycleToStlinkMode()
         {
             await SendStandCommand("POWER_OFF", StlinkPowerOffDelayMs);
@@ -1740,16 +1827,19 @@ namespace FCatFlasher.ViewModels
             await SendStandCommand("POWER_ON", BoardInsertPowerOnDelayMs, enforceMinimumDelay: false);
         }
 
+        /// <summary>
+        /// Перевіряє ST-LINK і робить одну спробу відновлення живленням.
+        /// </summary>
         private async Task<bool> EnsureStlinkReady(string context)
         {
-            if (await _firmwareService.CheckConnection(StlinkConnectionCheckTimeoutMs))
+            if (await _firmwareService.CheckConnection())
                 return true;
 
             Log += $"WARNING: ST-LINK немає зв'язку ({context}). Повторно подаємо живлення...\n";
 
             await PowerCycleToStlinkMode();
 
-            if (await _firmwareService.CheckConnection(StlinkConnectionCheckTimeoutMs))
+            if (await _firmwareService.CheckConnection())
             {
                 Log += "=== ST-LINK зв'язок відновлено ===\n";
                 return true;
@@ -1762,6 +1852,17 @@ namespace FCatFlasher.ViewModels
             return false;
         }
 
+        /// <summary>
+        /// Визначає, чи активний новий виробничий сценарій прошивки.
+        /// </summary>
+        private bool ShouldUseOptimizedProductionFlashMode()
+        {
+            return _workMode == WorkMode.Production && UseOptimizedProductionFlashMode;
+        }
+
+        /// <summary>
+        /// Запускає UART-тест у режимі, який відповідає поточному сценарію.
+        /// </summary>
         private async Task StartTest()
         {
             _cycleState = CycleState.Testing;
@@ -1769,7 +1870,7 @@ namespace FCatFlasher.ViewModels
 
             _diagnosticsParser.Reset();
 
-            if (_optimizeFlashMode)
+            if (ShouldUseOptimizedProductionFlashMode())
             {
                 await SetUartModeKeepingPowerOn();
             }
@@ -1801,6 +1902,9 @@ namespace FCatFlasher.ViewModels
             await WaitBoardRemovedAfterError();
         }
 
+        /// <summary>
+        /// Зупиняє успішний тест і передає плату в сценарій прошивки активного режиму.
+        /// </summary>
         private async Task StopSuccessfulTestAndFlash()
         {
             if (_workMode == WorkMode.Production)
@@ -1819,6 +1923,9 @@ namespace FCatFlasher.ViewModels
             await StopAll();
         }
 
+        /// <summary>
+        /// Після тесту готує стенд до виробничої прошивки через ST-LINK.
+        /// </summary>
         private async Task StopProductionTestAndFlash()
         {
             _cycleState = CycleState.Flashing;
@@ -1831,6 +1938,9 @@ namespace FCatFlasher.ViewModels
             await _reflashWorkflow.FlashAfterSuccessfulTest();
         }
 
+        /// <summary>
+        /// Завершує режим чистого тестування без прошивки і реєстрації плати.
+        /// </summary>
         private async Task CompleteSuccessfulTestOnly()
         {
             await SendStandCommand("BUZZ_OK", BuzzerOkDelayMs);
@@ -1844,6 +1954,9 @@ namespace FCatFlasher.ViewModels
             _cycleState = CycleState.Idle;
         }
 
+        /// <summary>
+        /// Виконує виробничу прошивку з перевіркою MCU та recovery-спробою.
+        /// </summary>
         private async Task StartProductionFlashing()
         {
             try
@@ -1867,16 +1980,6 @@ namespace FCatFlasher.ViewModels
                     ProgressValue = 100;
                     Log += "=== ПОМИЛКА ПРОШИВКИ ===\n";
 
-                    if (_optimizeFlashMode)
-                    {
-                        _optimizeFlashMode = false;
-                        _skipFlashRegistration = false;
-                        StopRunTimer();
-                        IsBusy = false;
-                        _cycleState = CycleState.Idle;
-                        return;
-                    }
-
                     Log += ">>> Заберіть плату зі стенда...\n";
 
                     _cycleState = CycleState.WaitingRemove;
@@ -1895,22 +1998,15 @@ namespace FCatFlasher.ViewModels
                 ProgressValue = 100;
                 Log += "ERROR: " + ex.Message + "\n";
 
-                if (_optimizeFlashMode)
-                {
-                    _optimizeFlashMode = false;
-                    _skipFlashRegistration = false;
-                    StopRunTimer();
-                    IsBusy = false;
-                    _cycleState = CycleState.Idle;
-                    return;
-                }
-
                 _cycleState = CycleState.WaitingRemove;
 
                 await WaitBoardRemovedAfterError();
             }
         }
 
+        /// <summary>
+        /// Виконує rework-прошивку відповідним файлом для визначеного MCU.
+        /// </summary>
         private async Task StartReflashFlashing()
         {
             string firmwareToFlash;
@@ -2000,6 +2096,9 @@ namespace FCatFlasher.ViewModels
             }
         }
 
+        /// <summary>
+        /// Фіксує успішну прошивку, реєструє плату або коробку і запускає наступний крок циклу.
+        /// </summary>
         private async Task CompleteSuccessfulFlash(string firmwareToFlash)
         {
             await SendStandCommand("BUZZ_OK", BuzzerOkDelayMs);
@@ -2007,9 +2106,7 @@ namespace FCatFlasher.ViewModels
             Status = "Flash OK";
             ProgressValue = 100;
 
-            if (_optimizeFlashMode)
-                Log += "=== ПІДБІР РЕЖИМУ: дані не збережено ===\n";
-            else if (_skipFlashRegistration)
+            if (_skipFlashRegistration)
                 Log += "=== ТЕСТОВА ПЕРЕПРОШИВКА: дані не збережено ===\n";
             else
                 RegisterDeviceInDatabase(firmwareToFlash);
@@ -2022,16 +2119,13 @@ namespace FCatFlasher.ViewModels
 
             Log += "Прошивку завершено\n";
 
-            if (_optimizeFlashMode)
+            Log += ">>> Заберіть плату зі стенда...\n";
+
+            if (_workMode == WorkMode.Production && UseOptimizedProductionFlashMode)
             {
-                Log += "=== Повертаємо UART після прошивки ===\n";
-                await SetUartModeKeepingPowerOn();
-                Log += "=== Очікуємо тестові дані для наступної прошивки ===\n";
-                await StartTest();
+                await PowerOffAndRestartOptimizedProductionCycle();
                 return;
             }
-
-            Log += ">>> Заберіть плату зі стенда...\n";
 
             _cycleState = CycleState.WaitingRemove;
 
@@ -2044,6 +2138,9 @@ namespace FCatFlasher.ViewModels
             return fileName.Contains("c011", StringComparison.OrdinalIgnoreCase);
         }
 
+        /// <summary>
+        /// Перевіряє наявність вибраного виробничого HEX-файлу.
+        /// </summary>
         private bool ValidateProductionFirmwareFileExists()
         {
             if (System.IO.File.Exists(FirmwarePath))
@@ -2056,6 +2153,9 @@ namespace FCatFlasher.ViewModels
             return false;
         }
 
+        /// <summary>
+        /// Перевіряє відповідність файлу прошивки поточному типу MCU.
+        /// </summary>
         private bool ValidateProductionFirmwareForDevice()
         {
             if (!System.IO.File.Exists(FirmwarePath))
@@ -2091,12 +2191,41 @@ namespace FCatFlasher.ViewModels
             ScannedSerial = "";
         }
 
+        /// <summary>
+        /// У новому виробничому режимі вимикає живлення і відразу запускає наступний цикл.
+        /// </summary>
+        private async Task PowerOffAndRestartOptimizedProductionCycle()
+        {
+            Status = "Power off";
+
+            await SendStandCommand("POWER_OFF", PowerOffBeforeRestartDelayMs);
+
+            if (_completedBox != null)
+            {
+                await ShowBoxCompletedWindow(_completedBox);
+                _completedBox = null;
+
+                if (_cycleState == CycleState.Idle)
+                    return;
+            }
+
+            LogCurrentBoardCycleTime();
+
+            await PowerOffAndRestartCycle();
+        }
+
+        /// <summary>
+        /// Після помилки дає оператору паузу і переходить до очікування зняття плати.
+        /// </summary>
         private async Task WaitBoardRemovedAfterError()
         {
             await Task.Delay(CycleErrorDelayMs);
             await WaitBoardRemoved();
         }
 
+        /// <summary>
+        /// Очікує зняття плати зі стенда перед наступним циклом.
+        /// </summary>
         private async Task WaitBoardRemoved()
         {
             if (_cycleState != CycleState.WaitingRemove)
@@ -2140,7 +2269,7 @@ namespace FCatFlasher.ViewModels
             {
                 await SendStandCommand("POWER_ON", BoardInsertPowerOnDelayMs, enforceMinimumDelay: false);
 
-                bool boardPresent = await _firmwareService.CheckBoardPresence(BoardRemovalCheckTimeoutMs);
+                bool boardPresent = await _firmwareService.CheckBoardPresence();
 
                 await SendStandCommand("POWER_OFF", BoardInsertPowerOffDelayMs);
 
@@ -2149,6 +2278,9 @@ namespace FCatFlasher.ViewModels
             }
         }
 
+        /// <summary>
+        /// Вимикає живлення, скидає серійник і стартує наступну ітерацію циклу.
+        /// </summary>
         private async Task PowerOffAndRestartCycle()
         {
             try
@@ -2168,6 +2300,9 @@ namespace FCatFlasher.ViewModels
             }
         }
 
+        /// <summary>
+        /// Зупиняє стенд, вимикає живлення і повертає UI в безпечний idle-стан.
+        /// </summary>
         private async Task StopAll()
         {
             try
@@ -2180,7 +2315,6 @@ namespace FCatFlasher.ViewModels
                 StopRunTimer();
                 ResetCycleData();
                 _testOnlyMode = false;
-                _optimizeFlashMode = false;
                 _skipFlashRegistration = false;
                 _stlinkSelectedForRun = false;
 
@@ -2210,6 +2344,9 @@ namespace FCatFlasher.ViewModels
                 new PropertyChangedEventArgs(name)
             );
         }
+        /// <summary>
+        /// Додає прошиту плату до поточної коробки і повертає звіт, якщо коробка заповнилась.
+        /// </summary>
         private BoxReport? RegisterFlashedBoard()
         {
             var report = _boxTracking.RegisterFlashedBoard(
@@ -2229,6 +2366,9 @@ namespace FCatFlasher.ViewModels
             return report;
         }
 
+        /// <summary>
+        /// Завантажує стартову статистику та локальні дані з урахуванням доступності API.
+        /// </summary>
         private void LoadApiData()
         {
             if (_currentUser.IsOffline)
@@ -2295,6 +2435,9 @@ namespace FCatFlasher.ViewModels
             _reflashedToday = 0;
         }
 
+        /// <summary>
+        /// Оновлює таблицю локальних даних для активної вкладки.
+        /// </summary>
         private void LoadLocalDataForCurrentTab()
         {
             LocalDataRows.Clear();
@@ -2434,6 +2577,9 @@ namespace FCatFlasher.ViewModels
             return digits[^4..];
         }
 
+        /// <summary>
+        /// Реєструє плату через API або локально, якщо API недоступний.
+        /// </summary>
         private void RegisterDeviceInDatabase(string firmwarePath)
         {
             if (_workMode == WorkMode.TestFirmware)
@@ -2520,6 +2666,9 @@ namespace FCatFlasher.ViewModels
             IncrementTodayCounter(TestRegistrationType);
         }
 
+        /// <summary>
+        /// Зберігає реєстрацію плати локально для подальшої синхронізації.
+        /// </summary>
         private void RegisterDeviceLocally(string firmwarePath)
         {
             try
@@ -2679,6 +2828,9 @@ namespace FCatFlasher.ViewModels
             }
         }
 
+        /// <summary>
+        /// Зберігає звіт коробки через API або локально для синхронізації.
+        /// </summary>
         private void SaveBoxReport(BoxReport report)
         {
             if (_currentUser.IsOffline)
@@ -2711,6 +2863,9 @@ namespace FCatFlasher.ViewModels
             }
         }
 
+        /// <summary>
+        /// Показує вікно завершеної коробки і обробляє вибір оператора.
+        /// </summary>
         private async Task ShowBoxCompletedWindow(BoxReport report)
         {
             var window = new global::FCatFlasher.BoxCompletedWindow
@@ -2737,6 +2892,9 @@ namespace FCatFlasher.ViewModels
             LoadLocalDataForCurrentTab();
         }
 
+        /// <summary>
+        /// Завантажує збережені налаштування у властивості ViewModel.
+        /// </summary>
         private void LoadSettings()
         {
             var settings = _settingsService.Load();
@@ -2750,12 +2908,14 @@ namespace FCatFlasher.ViewModels
             C0FirmwarePath = settings.C0FirmwarePath;
             ReworkOrderId = settings.ReworkOrderId;
             TestFirmwareDirectory = settings.TestFirmwareDirectory;
-            StmCubeCliPath = settings.StmCubeCliPath;
             ApiBaseUrl = settings.ApiBaseUrl;
+            UseOptimizedProductionFlashMode = settings.UseOptimizedProductionFlashMode;
 
-            ApplyFlashSettings();
         }
 
+        /// <summary>
+        /// Зберігає налаштування після завершення початкового завантаження.
+        /// </summary>
         private void SaveSettings()
         {
             if (!_settingsLoaded)
@@ -2772,15 +2932,9 @@ namespace FCatFlasher.ViewModels
                 C0FirmwarePath = C0FirmwarePath,
                 ReworkOrderId = ReworkOrderId,
                 TestFirmwareDirectory = TestFirmwareDirectory,
-                StmCubeCliPath = StmCubeCliPath,
-                ApiBaseUrl = ApiBaseUrl
+                ApiBaseUrl = ApiBaseUrl,
+                UseOptimizedProductionFlashMode = UseOptimizedProductionFlashMode
             });
-        }
-
-        private void ApplyFlashSettings()
-        {
-            _testFirmwareService.TestFirmwareDirectory = TestFirmwareDirectory;
-            _firmwareService.CliPath = StmCubeCliPath;
         }
 
         private void ResetUniqueFlashedCounter()
@@ -2793,6 +2947,9 @@ namespace FCatFlasher.ViewModels
             OnPropertyChanged(nameof(UniqueFlashedSinceStart));
         }
 
+        /// <summary>
+        /// Оновлює лічильник унікально прошитих плат для активного режиму.
+        /// </summary>
         private void RegisterUniqueFlashedBoard()
         {
             UniqueBoardCounter counter = _workMode == WorkMode.Reflash

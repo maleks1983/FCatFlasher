@@ -1,4 +1,4 @@
-using FCatFlasher.Models;
+﻿using FCatFlasher.Models;
 using FCatFlasher.Services;
 using FCatFlasher.ViewModels;
 using System.Windows;
@@ -6,6 +6,9 @@ using System.Windows.Controls;
 
 namespace FCatFlasher
 {
+/// <summary>
+/// Головне WPF-вікно flasher-додатку.
+/// </summary>
     public partial class MainWindow : Window
     {
         private int _lastSelectedTabIndex = 0;
@@ -22,11 +25,17 @@ namespace FCatFlasher
                 currentUser);
         }
 
+/// <summary>
+/// Автоматично прокручує лог до останнього рядка.
+/// </summary>
         private void LogTextBox_TextChanged(object sender, TextChangedEventArgs e)
         {
             LogTextBox.ScrollToEnd();
         }
 
+/// <summary>
+/// Повертає фокус у поле серійника після зміни тексту.
+/// </summary>
         private void SerialTextBox_TextChanged(object sender, TextChangedEventArgs e)
         {
             if (sender is not TextBox textBox ||
@@ -36,12 +45,18 @@ namespace FCatFlasher
             FocusVisibleSerialTextBox();
         }
 
+/// <summary>
+/// Фокусує поле серійника, коли воно знову стає доступним.
+/// </summary>
         private void SerialTextBox_IsEnabledChanged(object sender, DependencyPropertyChangedEventArgs e)
         {
             if (e.NewValue is true)
                 FocusVisibleSerialTextBox();
         }
 
+/// <summary>
+/// Фокусує видиме і доступне поле вводу серійного номера.
+/// </summary>
         private void FocusVisibleSerialTextBox()
         {
             Dispatcher.BeginInvoke(() =>
@@ -60,6 +75,9 @@ namespace FCatFlasher
             });
         }
 
+/// <summary>
+/// Передає ViewModel активну вкладку для перемикання футера і локальної таблиці.
+/// </summary>
         private void TabControl_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (sender is not TabControl tabControl)
