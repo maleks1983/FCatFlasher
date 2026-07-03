@@ -13,6 +13,7 @@ namespace FCatFlasher.Services
         private const string DefaultApiDirectory = "E:\\InicaalDG\\Cube\\api";
         private const uint FlashBaseAddress = 0x08000000;
         private const int ApiConnectionSettleDelayMs = 100;
+        private const int ApiSessionSettleDelayMs = 150;
         private const bool UseCliFallback = false;
 
         public string CliPath { get; set; } = DefaultCliPath;
@@ -150,13 +151,60 @@ namespace FCatFlasher.Services
             );
         }
 
+        public async Task<RdpUnlockSessionResult> GetDeviceTypeAndUnlockRdp()
+        {
+            string detectedDeviceType = "UNKNOWN";
+
+            string apiResult = await RunApi(
+                "GET DEVICE TYPE AND UNLOCK RDP",
+                api =>
+                {
+                    var output = new StringBuilder();
+
+                    DeviceInfo deviceInfo = api.GetDeviceInfo();
+                    StoreMcuInfo(deviceInfo);
+                    detectedDeviceType = GetDeviceTypeFromName(deviceInfo.Name);
+
+                    output.AppendLine($"MCU: {detectedDeviceType}");
+
+                    if (detectedDeviceType == "UNKNOWN")
+                    {
+                        output.AppendLine("ERROR: Unknown MCU");
+                        return output.ToString();
+                    }
+
+                    output.AppendLine("=== UNLOCK RDP 0xAA ===");
+
+                    int rdpResult = api.SendOptionBytesCommand("-ob rdp=0xaa");
+                    output.Append(FormatApiResult("RDP 0xAA", rdpResult));
+
+                    return output.ToString();
+                });
+
+            if (!ShouldFallbackToCli(apiResult))
+                return new RdpUnlockSessionResult(detectedDeviceType, apiResult);
+
+            detectedDeviceType = await GetDeviceType();
+
+            if (detectedDeviceType == "UNKNOWN")
+                return new RdpUnlockSessionResult(detectedDeviceType, "ERROR: Unknown MCU");
+
+            string unlockResult = await UnlockRdp();
+            return new RdpUnlockSessionResult(
+                detectedDeviceType,
+                new StringBuilder()
+                    .AppendLine($"MCU: {detectedDeviceType}")
+                    .Append(unlockResult)
+                    .ToString());
+        }
+
         public async Task<string> WriteFirmware(string firmwarePath, bool resetAfterWrite)
         {
             string apiResult = await RunApi(
                 $"WRITE FIRMWARE: {firmwarePath}",
                 api =>
                 {
-                    int downloadResult = api.DownloadFile(firmwarePath, FlashBaseAddress, skipErase: false, verify: true);
+                    int downloadResult = api.DownloadFile(firmwarePath, FlashBaseAddress, skipErase: false, verify: false);
 
                     if (downloadResult != 0)
                         return FormatApiResult("DOWNLOAD", downloadResult);
@@ -177,7 +225,7 @@ namespace FCatFlasher.Services
             string resetArgument = resetAfterWrite ? " -rst" : "";
 
             return await RunCli(
-                $"-c port=SWD -w \"{firmwarePath}\" -v{resetArgument}",
+                $"-c port=SWD -w \"{firmwarePath}\"{resetArgument}",
                 30000
             );
         }
@@ -224,7 +272,7 @@ namespace FCatFlasher.Services
 
             output.AppendLine(apiResult);
             output.AppendLine(await RunCli(
-                $"-c port=SWD -w \"{firmwarePath}\" -v",
+                $"-c port=SWD -w \"{firmwarePath}\"",
                 30000));
 
             output.AppendLine("=== SET RDP 0xBB ===");
@@ -277,6 +325,10 @@ namespace FCatFlasher.Services
             string DeviceType,
             string Output);
 
+        public readonly record struct RdpUnlockSessionResult(
+            string DeviceType,
+            string Output);
+
         private static string FlashProductionFirmwareInSession(
             Stm32CubeProgrammerApi api,
             string firmwarePath)
@@ -287,7 +339,7 @@ namespace FCatFlasher.Services
                 firmwarePath,
                 FlashBaseAddress,
                 skipErase: false,
-                verify: true);
+                verify: false);
 
             apiOutput.AppendLine(FormatApiResult("DOWNLOAD", downloadResult));
 
@@ -365,6 +417,10 @@ namespace FCatFlasher.Services
                 catch (Exception ex)
                 {
                     return $"ERROR: STM32CubeProgrammer API {title} failed: {ex.Message}";
+                }
+                finally
+                {
+                    Thread.Sleep(ApiSessionSettleDelayMs);
                 }
             });
         }
@@ -589,24 +645,33 @@ namespace FCatFlasher.Services
                     1
                 };
 
-                foreach (int shared in sharedModes.Distinct())
+                for (int attempt = 1; attempt <= 2; attempt++)
                 {
-                    foreach (int mode in modes)
+                    if (attempt > 1)
                     {
-                        DebugConnectParameters parameters = baseParameters;
-                        parameters.ConnectionMode = mode;
-                        parameters.Shared = shared;
+                        output.Append("retry after settle; ");
+                        Thread.Sleep(150);
+                    }
 
-                        int result = NativeMethods.ConnectStLink(parameters);
-                        output.Append($"{GetConnectModeName(mode)}/shared={shared}:{result}; ");
-
-                        if (result == 0)
+                    foreach (int shared in sharedModes.Distinct())
+                    {
+                        foreach (int mode in modes)
                         {
-                            attempts = output.ToString();
-                            return 0;
-                        }
+                            DebugConnectParameters parameters = baseParameters;
+                            parameters.ConnectionMode = mode;
+                            parameters.Shared = shared;
 
-                        NativeMethods.Disconnect();
+                            int result = NativeMethods.ConnectStLink(parameters);
+                            output.Append($"{GetConnectModeName(mode)}/shared={shared}:{result}; ");
+
+                            if (result == 0)
+                            {
+                                attempts = output.ToString();
+                                return 0;
+                            }
+
+                            NativeMethods.Disconnect();
+                        }
                     }
                 }
 

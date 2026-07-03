@@ -61,6 +61,20 @@
                                 Content="Залити тестову прошивку" />
 
                             <Button
+                                Width="120"
+                                Height="35"
+                                Margin="0,0,10,0"
+                                Command="{Binding TestOnlyCommand}"
+                                Content="Тестування" />
+
+                            <Button
+                                Width="210"
+                                Height="35"
+                                Margin="0,0,10,0"
+                                Command="{Binding OptimizeFlashModeCommand}"
+                                Content="Підбір режиму прошивки" />
+
+                            <Button
                                 Width="100"
                                 Height="35"
                                 Command="{Binding StopCommand}"
@@ -122,6 +136,13 @@
                                     Margin="0,0,10,0"
                                     Command="{Binding FlashCommand}"
                                     Content="Запустити цикл" />
+
+                                <Button
+                                    Width="160"
+                                    Height="35"
+                                    Margin="0,0,10,0"
+                                    Command="{Binding SingleFlashCommand}"
+                                    Content="Одинична прошивка" />
 
                                 <Button
                                     Width="100"

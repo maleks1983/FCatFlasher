@@ -4,7 +4,7 @@ namespace FCatFlasher.Services.Workflows
     {
         private const int PowerOffBeforeStlinkDelayMs = 300;
         private const int StlinkAfterTestModeSwitchDelayMs = 100;
-        private const int PowerOnSettleDelayMs = 100;
+        private const int PowerOnSettleDelayMs = 50;
 
         private readonly Func<string, int, bool, Task> _sendStandCommand;
         private readonly Func<int, int, Task> _setStlinkModeAndEnsurePowerOn;

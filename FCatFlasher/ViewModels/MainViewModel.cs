@@ -19,18 +19,20 @@ namespace FCatFlasher.ViewModels
     internal class MainViewModel : INotifyPropertyChanged
     {
         private const int PowerOffBeforeRestartDelayMs = 300;
-        private const int BoardInsertPowerOffDelayMs = 100;
+        private const int BoardInsertPowerOffDelayMs = 300;
         private const int BoardInsertPowerOnDelayMs = 50;
+        // private const int BoardRemovalPowerOffDelayMs = 100;
         private const int StandCommandSettleDelayMs = 100;
         private const int UartPowerOffDelayMs = 100;
         private const int StlinkPowerOffDelayMs = 200;
-        private const int PowerOnSettleDelayMs = 100;
+        private const int PowerOnSettleDelayMs = 50;
         private const int UartPowerOnSettleDelayMs = 50;
         private const int UartModeSwitchDelayMs = 100;
         private const int StlinkModeSwitchDelayMs = 100;
         private const int BuzzerOkDelayMs = 100;
         private const int CycleErrorDelayMs = 2000;
         private const int StlinkConnectionCheckTimeoutMs = 1000;
+        private const int BoardRemovalCheckTimeoutMs = 250;
         private const string TestRegistrationType = "TEST";
         private const string ProductionRegistrationType = "PRODUCTION";
         private const string ReworkRegistrationType = "REWORK";
@@ -44,7 +46,8 @@ namespace FCatFlasher.ViewModels
         private readonly CurrentUser _currentUser;
         private readonly DiagnosticsParser _diagnosticsParser = new();
         private readonly BoxTrackingService _boxTracking = new();
-        private readonly UniqueBoardCounter _uniqueBoardCounter = new();
+        private readonly UniqueBoardCounter _productionUniqueBoardCounter = new();
+        private readonly UniqueBoardCounter _reflashUniqueBoardCounter = new();
         private readonly ProductionFlashWorkflow _productionFlashWorkflow;
         private readonly ReflashWorkflow _reflashWorkflow;
         private readonly TestFirmwareWorkflow _testFirmwareWorkflow;
@@ -54,10 +57,16 @@ namespace FCatFlasher.ViewModels
         private string _currentDeviceType = "";
         private string _lastConnectionError = "";
         private DateTime _runStartedAt;
+        private DateTime? _currentBoardStartedAt;
         private bool _stlinkSelectedForRun;
         private bool _standPowerOn;
         private bool _skipReflashDiagnosticsReport;
         private bool _skipFlashRegistration;
+        private bool _measureBoardCycleTime;
+        private bool _singleProductionFlash;
+        private bool _testOnlyMode;
+        private bool _optimizeFlashMode;
+        private bool _startRunTimerOnBoardDetected;
         private bool _startingFlashAfterSerial;
         private bool _productionBoxTimerStarted;
         private CancellationTokenSource? _serialEntryCts;
@@ -91,7 +100,10 @@ namespace FCatFlasher.ViewModels
         public ICommand SyncPendingCommand { get; }
 
         public RelayCommand TestFirmwareCommand { get; }
+        public RelayCommand TestOnlyCommand { get; }
+        public RelayCommand OptimizeFlashModeCommand { get; }
         public RelayCommand FlashCommand { get; }
+        public RelayCommand SingleFlashCommand { get; }
         public RelayCommand ReflashCommand { get; }
         public RelayCommand ReflashTestFirmwareCommand { get; }
 
@@ -340,6 +352,8 @@ namespace FCatFlasher.ViewModels
                 OnPropertyChanged();
 
                 TestFirmwareCommand.RaiseCanExecuteChanged();
+                TestOnlyCommand.RaiseCanExecuteChanged();
+                OptimizeFlashModeCommand.RaiseCanExecuteChanged();
                 FlashCommand.RaiseCanExecuteChanged();
                 ReflashCommand.RaiseCanExecuteChanged();
                 ReflashTestFirmwareCommand.RaiseCanExecuteChanged();
@@ -455,7 +469,12 @@ namespace FCatFlasher.ViewModels
 
         public int UniqueFlashedSinceStart
         {
-            get => _uniqueBoardCounter.Count;
+            get => _footerMode switch
+            {
+                WorkMode.Reflash => _reflashUniqueBoardCounter.Count,
+                WorkMode.Production => _productionUniqueBoardCounter.Count,
+                _ => 0
+            };
         }
 
         private string _runElapsedText = "00:00:00";
@@ -488,7 +507,6 @@ namespace FCatFlasher.ViewModels
                 StartProductionFlashing);
             _reflashWorkflow = new ReflashWorkflow(
                 SendStandCommand,
-                SetStlinkModeAndEnsurePowerOn,
                 StartReflashFlashing);
             _testFirmwareWorkflow = new TestFirmwareWorkflow(
                 () => _cycleState = CycleState.Flashing,
@@ -516,8 +534,81 @@ namespace FCatFlasher.ViewModels
 
                     _workMode = WorkMode.TestFirmware;
                     _stlinkSelectedForRun = false;
-                    StartRunTimer();
+                    _startRunTimerOnBoardDetected = true;
+                    ResetRunTimer();
                     await StartFullCycle();
+                },
+                () => !IsBusy
+            );
+
+            TestOnlyCommand = new RelayCommand(
+                async () =>
+                {
+                    if (!EnsureConnected())
+                        return;
+
+                    _workMode = WorkMode.TestFirmware;
+                    _testOnlyMode = true;
+                    _stlinkSelectedForRun = false;
+                    ResetRunTimer();
+                    Log = "";
+                    ProgressValue = 0;
+                    IsBusy = true;
+
+                    try
+                    {
+                        StartRunTimer();
+                        await StartTest();
+                    }
+                    catch (Exception ex)
+                    {
+                        _testOnlyMode = false;
+                        Status = "Error";
+                        Log += "ERROR: " + ex.Message + "\n";
+                        StopRunTimer();
+                        IsBusy = false;
+                        _cycleState = CycleState.Idle;
+                    }
+                },
+                () => !IsBusy
+            );
+
+            OptimizeFlashModeCommand = new RelayCommand(
+                async () =>
+                {
+                    if (!RequestProductionStartData())
+                        return;
+
+                    if (!EnsureConnected())
+                        return;
+
+                    _workMode = WorkMode.Production;
+                    _optimizeFlashMode = true;
+                    _skipFlashRegistration = true;
+                    _stlinkSelectedForRun = false;
+                    _productionBoxActive = false;
+                    ResetUniqueFlashedCounter();
+                    LoadLocalDataForCurrentTab();
+                    ResetRunTimer();
+                    Log = "";
+                    ProgressValue = 0;
+                    IsBusy = true;
+
+                    try
+                    {
+                        StartRunTimer();
+                        await StartTest();
+                    }
+                    catch (Exception ex)
+                    {
+                        _optimizeFlashMode = false;
+                        _skipFlashRegistration = false;
+                        Status = "Error";
+                        Log += "ERROR: " + ex.Message + "\n";
+                        StopRunTimer();
+                        IsBusy = false;
+                        _cycleState = CycleState.Idle;
+                    }
                 },
                 () => !IsBusy
             );
@@ -535,9 +626,38 @@ namespace FCatFlasher.ViewModels
                     _stlinkSelectedForRun = false;
                     _productionBoxActive = true;
                     ResetProductionBoxTimer();
+                    _startRunTimerOnBoardDetected = true;
                     ResetUniqueFlashedCounter();
                     LoadLocalDataForCurrentTab();
                     await StartFullCycle();
+                },
+                () => !IsBusy
+            );
+
+            SingleFlashCommand = new RelayCommand(
+                async () =>
+                {
+                    if (!EnsureConnected())
+                        return;
+
+                    _workMode = WorkMode.Production;
+                    _singleProductionFlash = true;
+                    _skipFlashRegistration = true;
+                    _measureBoardCycleTime = true;
+                    _startRunTimerOnBoardDetected = true;
+                    _stlinkSelectedForRun = false;
+                    ResetRunTimer();
+
+                    try
+                    {
+                        await StartFullCycle();
+                    }
+                    finally
+                    {
+                        _singleProductionFlash = false;
+                        _skipFlashRegistration = false;
+                        _measureBoardCycleTime = false;
+                    }
                 },
                 () => !IsBusy
             );
@@ -554,7 +674,8 @@ namespace FCatFlasher.ViewModels
                     _workMode = WorkMode.Reflash;
                     _stlinkSelectedForRun = false;
                     ResetUniqueFlashedCounter();
-                    StartRunTimer();
+                    _startRunTimerOnBoardDetected = true;
+                    ResetRunTimer();
                     await StartFullCycle();
                 },
                 () => !IsBusy
@@ -570,7 +691,8 @@ namespace FCatFlasher.ViewModels
                     _skipReflashDiagnosticsReport = true;
                     _skipFlashRegistration = true;
                     _stlinkSelectedForRun = false;
-                    StartRunTimer();
+                    _startRunTimerOnBoardDetected = true;
+                    ResetRunTimer();
 
                     try
                     {
@@ -920,6 +1042,7 @@ namespace FCatFlasher.ViewModels
         private void ResetCycleData()
         {
             _currentBoardSerial = "";
+            _currentBoardStartedAt = null;
             _lastConnectionError = "";
             _startingFlashAfterSerial = false;
             _serialEntryCts?.Cancel();
@@ -998,9 +1121,28 @@ namespace FCatFlasher.ViewModels
                     _lastConnectionError = "";
                     ProgressValue = 20;
                     Log += "Плату знайдено\n";
+                    _currentBoardStartedAt = DateTime.Now;
+
+                    if (_startRunTimerOnBoardDetected)
+                    {
+                        StartRunTimer();
+                        _startRunTimerOnBoardDetected = false;
+
+                        if (_workMode == WorkMode.Production)
+                            _productionBoxTimerStarted = true;
+                    }
+
+                    if (_measureBoardCycleTime && !_runTimer.IsEnabled)
+                        StartRunTimer();
 
                     if (_workMode == WorkMode.TestFirmware)
                     {
+                        if (_testOnlyMode)
+                        {
+                            await StartTest();
+                            return;
+                        }
+
                         await FlashOnlyTestFirmware();
                         return;
                     }
@@ -1042,6 +1184,12 @@ namespace FCatFlasher.ViewModels
                     return;
                 }
 
+                if (_singleProductionFlash)
+                {
+                    await StartTest();
+                    return;
+                }
+
                 WaitProductionSerialBeforeTest();
             }
             catch (Exception ex)
@@ -1071,7 +1219,9 @@ namespace FCatFlasher.ViewModels
         {
             string error = _firmwareService.LastConnectionError;
 
-            if (string.IsNullOrWhiteSpace(error) || error == _lastConnectionError)
+            if (string.IsNullOrWhiteSpace(error) ||
+                error == "ST-LINK OK, target MCU not connected" ||
+                error == _lastConnectionError)
                 return;
 
             _lastConnectionError = error;
@@ -1093,29 +1243,14 @@ namespace FCatFlasher.ViewModels
                 ProgressValue = 30;
                 Log += "=== ПЕРЕПРОШИВКА: СПОЧАТКУ ТЕСТОВА ===\n";
 
-                _currentDeviceType = await GetDeviceTypeWithRetry("prepare reflash");
-
-                if (!IsKnownDeviceType(_currentDeviceType))
-                {
-                    Status = "MCU Error";
-                    ProgressValue = 100;
-                    Log += $"ERROR: MCU not detected: {_currentDeviceType}\n";
-                    Log += ">>> Заберіть плату зі стенда...\n";
-
-                    _cycleState = CycleState.WaitingRemove;
-
-                    await WaitBoardRemovedAfterError();
-                    return;
-                }
-
-                Log += $"MCU: {_currentDeviceType}\n";
-
-                string result = await FlashAutoTestFirmwareWithRetry(_currentDeviceType);
+                (string deviceType, string result) = await FlashAutoTestFirmwareWithUnlockSessionAndRetry();
+                _currentDeviceType = deviceType;
 
                 if (TestFirmwareFailed(result))
                 {
                     Status = "Test firmware error";
                     ProgressValue = 100;
+                    Log += result + "\n";
                     Log += "\n=== ТЕСТОВУ ПРОШИВКУ НЕ ЗАЛИТО ===\n";
                     Log += ">>> Заберіть плату зі стенда...\n";
                     ShowTestErrorDialog("Помилка тестової прошивки", result);
@@ -1126,9 +1261,10 @@ namespace FCatFlasher.ViewModels
                     return;
                 }
 
+                Log += result + "\n";
                 Log += "\n=== ТЕСТОВУ ПРОШИВКУ ЗАЛИТО ===\n";
 
-                await Task.Delay(100);
+                await Task.Delay(50);
 
                 if (_skipReflashDiagnosticsReport)
                 {
@@ -1148,6 +1284,21 @@ namespace FCatFlasher.ViewModels
 
                 await WaitBoardRemovedAfterError();
             }
+        }
+
+        private async Task<(string DeviceType, string Output)> FlashAutoTestFirmwareWithUnlockSessionAndRetry()
+        {
+            (string deviceType, string output) =
+                await _testFirmwareService.FlashAutoTestFirmwareWithUnlockSession();
+
+            if (!TestFirmwareFailed(output))
+                return (deviceType, output);
+
+            Log += "\nWARNING: MCU/RDP не готові. Робимо power cycle і пробуємо ще раз...\n";
+
+            await PowerCycleToStlinkMode();
+
+            return await _testFirmwareService.FlashAutoTestFirmwareWithUnlockSession();
         }
 
         private async Task<string> FlashAutoTestFirmwareWithRetry(string deviceType)
@@ -1178,7 +1329,7 @@ namespace FCatFlasher.ViewModels
             Log += "=== Повторно подаємо живлення в ST-LINK режимі ===\n";
 
             await SendStandCommand("POWER_OFF", BoardInsertPowerOffDelayMs);
-            await SendStandCommand("POWER_ON", PowerOnSettleDelayMs);
+            await SendStandCommand("POWER_ON", PowerOnSettleDelayMs, enforceMinimumDelay: false);
 
             return await _firmwareService.GetDeviceType();
         }
@@ -1315,10 +1466,20 @@ namespace FCatFlasher.ViewModels
                         ProgressValue = 70;
                         Log += "=== ТЕСТ ПРОЙДЕНО ===\n";
 
+                        if (_testOnlyMode)
+                        {
+                            await CompleteSuccessfulTestOnly();
+                            return;
+                        }
+
                         if (_workMode == WorkMode.Production)
                         {
-                            _currentBoardSerial = ScannedSerial.Trim();
-                            ScannedSerial = "";
+                            if (!_singleProductionFlash)
+                            {
+                                _currentBoardSerial = ScannedSerial.Trim();
+                                ScannedSerial = "";
+                            }
+
                             IsSerialInputEnabled = true;
 
                             await StopSuccessfulTestAndFlash();
@@ -1329,7 +1490,11 @@ namespace FCatFlasher.ViewModels
                         {
                             _cycleState = CycleState.WaitingSerial;
                             IsSerialInputEnabled = true;
-                            Log += ">>> Введіть серійний номер для початку прошивки...\n";
+                            Log += ">>> Введіть серійний номер D + від 6 цифр для початку прошивки...\n";
+
+                            if (IsSerialReadyForCurrentMode(ScannedSerial))
+                                ScheduleNextStepAfterSerialEntered();
+
                             return;
                         }
 
@@ -1346,7 +1511,27 @@ namespace FCatFlasher.ViewModels
                         "Помилка тесту",
                         $"SIG: {_diagnosticsParser.LastSig}\n\n{_diagnosticsParser.LastReport}");
 
+                    if (_testOnlyMode)
+                    {
+                        _testOnlyMode = false;
+                        StopRunTimer();
+                        IsBusy = false;
+                        _cycleState = CycleState.Idle;
+                        return;
+                    }
+
+                    if (_optimizeFlashMode)
+                    {
+                        _optimizeFlashMode = false;
+                        _skipFlashRegistration = false;
+                        StopRunTimer();
+                        IsBusy = false;
+                        _cycleState = CycleState.Idle;
+                        return;
+                    }
+
                     await StopTestAndWaitRemove();
+
                     return;
                 }
             });
@@ -1405,7 +1590,24 @@ namespace FCatFlasher.ViewModels
         {
             return _workMode == WorkMode.Production
                 ? IsProductionSerialValid(serial)
-                : !string.IsNullOrWhiteSpace(serial);
+                : IsReflashSerialValid(serial);
+        }
+
+        private static bool IsReflashSerialValid(string serial)
+        {
+            string trimmedSerial = serial.Trim();
+
+            if (trimmedSerial.Length < 7 ||
+                char.ToUpperInvariant(trimmedSerial[0]) != 'D')
+                return false;
+
+            for (int index = 1; index < trimmedSerial.Length; index++)
+            {
+                if (!char.IsDigit(trimmedSerial[index]))
+                    return false;
+            }
+
+            return true;
         }
 
         private static bool IsProductionSerialValid(string serial)
@@ -1488,10 +1690,19 @@ namespace FCatFlasher.ViewModels
         }
 
         private async Task SetUartModeAndEnsurePowerOn(
+            int powerOffDelayMs = UartPowerOffDelayMs,
             int modeSwitchDelayMs = UartModeSwitchDelayMs,
             int powerOnDelayMs = PowerOnSettleDelayMs)
         {
-            await SendStandCommand("POWER_OFF", UartPowerOffDelayMs);
+            await SendStandCommand("POWER_OFF", powerOffDelayMs);
+            await SetUartMode(modeSwitchDelayMs);
+            await SendStandCommand("POWER_ON", powerOnDelayMs, enforceMinimumDelay: false);
+        }
+
+        private async Task SetUartModeKeepingPowerOn(
+            int modeSwitchDelayMs = UartModeSwitchDelayMs,
+            int powerOnDelayMs = 0)
+        {
             await SetUartMode(modeSwitchDelayMs);
             await SendStandCommand("POWER_ON", powerOnDelayMs, enforceMinimumDelay: false);
         }
@@ -1504,7 +1715,7 @@ namespace FCatFlasher.ViewModels
             await SetStlinkMode(modeSwitchDelayMs);
 
             if (!powerAlreadyOn)
-                await SendStandCommand("POWER_ON", powerOnDelayMs);
+                await SendStandCommand("POWER_ON", powerOnDelayMs, enforceMinimumDelay: false);
         }
         private async Task PowerCycleToStlinkMode()
         {
@@ -1557,7 +1768,22 @@ namespace FCatFlasher.ViewModels
             IsSerialInputEnabled = string.IsNullOrEmpty(ScannedSerial);
 
             _diagnosticsParser.Reset();
-            await SetUartModeAndEnsurePowerOn();
+
+            if (_optimizeFlashMode)
+            {
+                await SetUartModeKeepingPowerOn();
+            }
+            else if (_workMode == WorkMode.Reflash)
+            {
+                await SetUartModeAndEnsurePowerOn(
+                    powerOffDelayMs: 400,
+                    modeSwitchDelayMs: 100,
+                    powerOnDelayMs: 0);
+            }
+            else
+            {
+                await SetUartModeAndEnsurePowerOn();
+            }
 
             Status = "Testing";
             ProgressValue = 60;
@@ -1605,6 +1831,19 @@ namespace FCatFlasher.ViewModels
             await _reflashWorkflow.FlashAfterSuccessfulTest();
         }
 
+        private async Task CompleteSuccessfulTestOnly()
+        {
+            await SendStandCommand("BUZZ_OK", BuzzerOkDelayMs);
+            _testOnlyMode = false;
+
+            Status = "Test OK";
+            ProgressValue = 100;
+            Log += "Тестування завершено\n";
+            StopRunTimer();
+            IsBusy = false;
+            _cycleState = CycleState.Idle;
+        }
+
         private async Task StartProductionFlashing()
         {
             try
@@ -1627,6 +1866,17 @@ namespace FCatFlasher.ViewModels
                     Status = "Flash Error";
                     ProgressValue = 100;
                     Log += "=== ПОМИЛКА ПРОШИВКИ ===\n";
+
+                    if (_optimizeFlashMode)
+                    {
+                        _optimizeFlashMode = false;
+                        _skipFlashRegistration = false;
+                        StopRunTimer();
+                        IsBusy = false;
+                        _cycleState = CycleState.Idle;
+                        return;
+                    }
+
                     Log += ">>> Заберіть плату зі стенда...\n";
 
                     _cycleState = CycleState.WaitingRemove;
@@ -1644,6 +1894,16 @@ namespace FCatFlasher.ViewModels
                 Status = "Flash Error";
                 ProgressValue = 100;
                 Log += "ERROR: " + ex.Message + "\n";
+
+                if (_optimizeFlashMode)
+                {
+                    _optimizeFlashMode = false;
+                    _skipFlashRegistration = false;
+                    StopRunTimer();
+                    IsBusy = false;
+                    _cycleState = CycleState.Idle;
+                    return;
+                }
 
                 _cycleState = CycleState.WaitingRemove;
 
@@ -1747,7 +2007,9 @@ namespace FCatFlasher.ViewModels
             Status = "Flash OK";
             ProgressValue = 100;
 
-            if (_skipFlashRegistration)
+            if (_optimizeFlashMode)
+                Log += "=== ПІДБІР РЕЖИМУ: дані не збережено ===\n";
+            else if (_skipFlashRegistration)
                 Log += "=== ТЕСТОВА ПЕРЕПРОШИВКА: дані не збережено ===\n";
             else
                 RegisterDeviceInDatabase(firmwareToFlash);
@@ -1759,6 +2021,17 @@ namespace FCatFlasher.ViewModels
                 RegisterUniqueFlashedBoard();
 
             Log += "Прошивку завершено\n";
+
+            if (_optimizeFlashMode)
+            {
+                Log += "=== Повертаємо UART після прошивки ===\n";
+                await SetUartModeKeepingPowerOn();
+                Log += "=== Очікуємо тестові дані для наступної прошивки ===\n";
+                await StartTest();
+                return;
+            }
+
+            Log += ">>> Заберіть плату зі стенда...\n";
 
             _cycleState = CycleState.WaitingRemove;
 
@@ -1839,7 +2112,41 @@ namespace FCatFlasher.ViewModels
                 _completedBox = null;
             }
 
+            await WaitUntilBoardRemoved();
+
+            LogCurrentBoardCycleTime();
+
+            if (_measureBoardCycleTime)
+                StopRunTimer();
+
             await PowerOffAndRestartCycle();
+        }
+
+        private void LogCurrentBoardCycleTime()
+        {
+            if (_currentBoardStartedAt == null)
+                return;
+
+            TimeSpan elapsed = DateTime.Now - _currentBoardStartedAt.Value;
+            Log += $"Час циклу плати: {elapsed:hh\\:mm\\:ss}\n";
+            _currentBoardStartedAt = null;
+        }
+
+        private async Task WaitUntilBoardRemoved()
+        {
+            Status = "Remove board";
+
+            while (_cycleState == CycleState.WaitingRemove)
+            {
+                await SendStandCommand("POWER_ON", BoardInsertPowerOnDelayMs, enforceMinimumDelay: false);
+
+                bool boardPresent = await _firmwareService.CheckBoardPresence(BoardRemovalCheckTimeoutMs);
+
+                await SendStandCommand("POWER_OFF", BoardInsertPowerOffDelayMs);
+
+                if (!boardPresent)
+                    return;
+            }
         }
 
         private async Task PowerOffAndRestartCycle()
@@ -1872,6 +2179,9 @@ namespace FCatFlasher.ViewModels
 
                 StopRunTimer();
                 ResetCycleData();
+                _testOnlyMode = false;
+                _optimizeFlashMode = false;
+                _skipFlashRegistration = false;
                 _stlinkSelectedForRun = false;
 
                 Status = "Stopped";
@@ -2475,13 +2785,21 @@ namespace FCatFlasher.ViewModels
 
         private void ResetUniqueFlashedCounter()
         {
-            _uniqueBoardCounter.Reset();
+            if (_workMode == WorkMode.Reflash)
+                _reflashUniqueBoardCounter.Reset();
+            else if (_workMode == WorkMode.Production)
+                _productionUniqueBoardCounter.Reset();
+
             OnPropertyChanged(nameof(UniqueFlashedSinceStart));
         }
 
         private void RegisterUniqueFlashedBoard()
         {
-            if (_uniqueBoardCounter.Register(GetCurrentBoardSerial()))
+            UniqueBoardCounter counter = _workMode == WorkMode.Reflash
+                ? _reflashUniqueBoardCounter
+                : _productionUniqueBoardCounter;
+
+            if (counter.Register(GetCurrentBoardSerial()))
                 OnPropertyChanged(nameof(UniqueFlashedSinceStart));
         }
 

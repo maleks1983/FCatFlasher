@@ -95,6 +95,7 @@ namespace FCatFlasher.Services.Workflows
                 {
                     _setStatus("Test firmware error");
                     _setProgress(100);
+                    _appendLog(result + "\n");
                     _appendLog("=== ТЕСТОВУ ПРОШИВКУ НЕ ЗАЛИТО ===\n");
                     _appendLog(">>> Заберіть плату зі стенда...\n");
                     _showTestErrorDialog("Помилка тестової прошивки", result);
@@ -102,6 +103,8 @@ namespace FCatFlasher.Services.Workflows
                     await WaitBoardRemovedAfterFailure();
                     return;
                 }
+
+                _appendLog(result + "\n");
 
                 await _sendStandCommand("BUZZ_OK", BuzzerOkDelayMs, true);
 

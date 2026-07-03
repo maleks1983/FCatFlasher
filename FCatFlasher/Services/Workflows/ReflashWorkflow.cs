@@ -3,29 +3,25 @@ namespace FCatFlasher.Services.Workflows
     internal sealed class ReflashWorkflow
     {
         private const int PowerOffBeforeStlinkDelayMs = 200;
-        private const int StlinkAfterTestModeSwitchDelayMs = 200;
-        private const int PowerOnSettleDelayMs = 200;
+        private const int StlinkAfterTestModeSwitchDelayMs = 100;
+        private const int PowerOnSettleDelayMs = 50;
 
         private readonly Func<string, int, bool, Task> _sendStandCommand;
-        private readonly Func<int, int, Task> _setStlinkModeAndEnsurePowerOn;
         private readonly Func<Task> _startFlashing;
 
         public ReflashWorkflow(
             Func<string, int, bool, Task> sendStandCommand,
-            Func<int, int, Task> setStlinkModeAndEnsurePowerOn,
             Func<Task> startFlashing)
         {
             _sendStandCommand = sendStandCommand;
-            _setStlinkModeAndEnsurePowerOn = setStlinkModeAndEnsurePowerOn;
             _startFlashing = startFlashing;
         }
 
         public async Task FlashAfterSuccessfulTest()
         {
             await _sendStandCommand("POWER_OFF", PowerOffBeforeStlinkDelayMs, true);
-            await _setStlinkModeAndEnsurePowerOn(
-                StlinkAfterTestModeSwitchDelayMs,
-                PowerOnSettleDelayMs);
+            await _sendStandCommand("STLINK_ON", StlinkAfterTestModeSwitchDelayMs, true);
+            await _sendStandCommand("POWER_ON", PowerOnSettleDelayMs, false);
 
             await _startFlashing();
         }
