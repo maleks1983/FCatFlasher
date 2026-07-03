@@ -1,0 +1,13 @@
+{
+  "SelectedComPort": "COM4",
+  "FirmwarePath": "",
+  "FirmwareName": "",
+  "ReworkFirmwareName": "",
+  "BoxQuantity": 0,
+  "G0FirmwarePath": "",
+  "C0FirmwarePath": "",
+  "ReworkOrderId": "",
+  "TestFirmwareDirectory": "D:\\",
+  "StmCubeCliPath": "E:\\InicaalDG\\STM32CubeProgrammer\\bin\\STM32_Programmer_CLI.exe",
+  "ApiBaseUrl": "http://localhost:8080"
+}
