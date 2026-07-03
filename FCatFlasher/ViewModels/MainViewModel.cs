@@ -1,17 +1,14 @@
-﻿using FCatFlasher.Helpers;
+using FCatFlasher.Helpers;
 using FCatFlasher.Models;
 using FCatFlasher.Services;
 using FCatFlasher.Services.Workflows;
-using Microsoft.Win32;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Globalization;
-using System.IO.Ports;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Windows;
 using System.Windows.Input;
-using System.Windows.Threading;
 
 namespace FCatFlasher.ViewModels
 {
@@ -24,13 +21,6 @@ namespace FCatFlasher.ViewModels
         private const int BoardInsertPowerOffDelayMs = 300;
         private const int BoardInsertPowerOnDelayMs = 50;
         // private const int BoardRemovalPowerOffDelayMs = 100;
-        private const int StandCommandSettleDelayMs = 100;
-        private const int UartPowerOffDelayMs = 100;
-        private const int StlinkPowerOffDelayMs = 200;
-        private const int PowerOnSettleDelayMs = 50;
-        private const int UartPowerOnSettleDelayMs = 50;
-        private const int UartModeSwitchDelayMs = 100;
-        private const int StlinkModeSwitchDelayMs = 100;
         private const int BuzzerOkDelayMs = 100;
         private const int CycleErrorDelayMs = 2000;
         private const string TestRegistrationType = "TEST";
@@ -40,6 +30,7 @@ namespace FCatFlasher.ViewModels
         private readonly FirmwareService _firmwareService = new();
         private readonly TestFirmwareService _testFirmwareService;
         private readonly SerialService _serial = new();
+        private readonly StandController _stand;
         private readonly SettingsService _settingsService = new();
         private readonly ApiService _apiService;
         private readonly LocalDatabaseService _localDatabaseService;
@@ -51,15 +42,14 @@ namespace FCatFlasher.ViewModels
         private readonly ProductionFlashWorkflow _productionFlashWorkflow;
         private readonly ReflashWorkflow _reflashWorkflow;
         private readonly TestFirmwareWorkflow _testFirmwareWorkflow;
-        private readonly SemaphoreSlim _standCommandLock = new(1, 1);
-        private readonly DispatcherTimer _runTimer = new() { Interval = TimeSpan.FromSeconds(1) };
+        private readonly CycleTimerService _cycleTimer = new();
+        private readonly FileDialogService _fileDialogs = new();
+        private readonly SerialPortDiscoveryService _serialPorts = new();
+        private readonly LocalDataTableService _localDataTables;
         private bool _settingsLoaded;
         private string _currentDeviceType = "";
         private string _lastConnectionError = "";
-        private DateTime _runStartedAt;
-        private DateTime? _currentBoardStartedAt;
         private bool _stlinkSelectedForRun;
-        private bool _standPowerOn;
         private bool _skipReflashDiagnosticsReport;
         private bool _skipFlashRegistration;
         private bool _measureBoardCycleTime;
@@ -67,7 +57,6 @@ namespace FCatFlasher.ViewModels
         private bool _testOnlyMode;
         private bool _startRunTimerOnBoardDetected;
         private bool _startingFlashAfterSerial;
-        private bool _productionBoxTimerStarted;
         private CancellationTokenSource? _serialEntryCts;
 
         private enum WorkMode
@@ -497,12 +486,14 @@ namespace FCatFlasher.ViewModels
             _localDatabaseService = localDatabaseService;
             _currentUser = currentUser;
             _testFirmwareService = new TestFirmwareService(_firmwareService);
+            _stand = new StandController(_serial);
+            _localDataTables = new LocalDataTableService(_localDatabaseService, _boxTracking);
             _productionFlashWorkflow = new ProductionFlashWorkflow(
-                SendStandCommand,
-                SetStlinkModeAndEnsurePowerOn,
+                _stand.SendCommand,
+                _stand.SetStlinkModeAndEnsurePowerOn,
                 StartProductionFlashing);
             _reflashWorkflow = new ReflashWorkflow(
-                SendStandCommand,
+                _stand.SendCommand,
                 StartReflashFlashing);
             _testFirmwareWorkflow = new TestFirmwareWorkflow(
                 () => _cycleState = CycleState.Flashing,
@@ -516,7 +507,7 @@ namespace FCatFlasher.ViewModels
                 IsKnownDeviceType,
                 FlashAutoTestFirmwareWithRetry,
                 TestFirmwareFailed,
-                SendStandCommand,
+                _stand.SendCommand,
                 ShowTestErrorDialog,
                 RegisterDeviceInDatabase,
                 WaitBoardRemoved,
@@ -675,7 +666,7 @@ namespace FCatFlasher.ViewModels
             OpenProductionReportCommand = new RelayCommand(() => OpenReportWindow(isReworkReport: false));
             OpenReworkReportCommand = new RelayCommand(() => OpenReportWindow(isReworkReport: true));
 
-            _runTimer.Tick += (_, _) => UpdateRunElapsed();
+            _cycleTimer.RunElapsedChanged += value => RunElapsedText = value;
             _serial.DataReceived += OnDataReceived;
 
             RefreshComPorts();
@@ -849,30 +840,16 @@ namespace FCatFlasher.ViewModels
         {
             ComPorts.Clear();
 
-            foreach (string port in SerialPort.GetPortNames())
+            foreach (string port in _serialPorts.GetPortNames())
                 ComPorts.Add(port);
 
             if (ComPorts.Count > 0 && string.IsNullOrWhiteSpace(SelectedComPort))
                 SelectedComPort = ComPorts[0];
         }
 
-        /// <summary>
-        /// Показує діалог вибору HEX-файлу прошивки.
-        /// </summary>
-        private string? BrowseFirmwareFile()
-        {
-            var dialog = new OpenFileDialog
-            {
-                Title = "Оберіть прошивку",
-                Filter = "Firmware files (*.hex;*.bin)|*.hex;*.bin|HEX files (*.hex)|*.hex|BIN files (*.bin)|*.bin|All files (*.*)|*.*"
-            };
-
-            return dialog.ShowDialog() == true ? dialog.FileName : null;
-        }
-
         private void BrowseFirmware()
         {
-            string? path = BrowseFirmwareFile();
+            string? path = _fileDialogs.BrowseFirmwareFile();
 
             if (path != null)
                 FirmwarePath = path;
@@ -880,7 +857,7 @@ namespace FCatFlasher.ViewModels
 
         private void BrowseG0Firmware()
         {
-            string? path = BrowseFirmwareFile();
+            string? path = _fileDialogs.BrowseFirmwareFile();
 
             if (path != null)
                 G0FirmwarePath = path;
@@ -888,7 +865,7 @@ namespace FCatFlasher.ViewModels
 
         private void BrowseC0Firmware()
         {
-            string? path = BrowseFirmwareFile();
+            string? path = _fileDialogs.BrowseFirmwareFile();
 
             if (path != null)
                 C0FirmwarePath = path;
@@ -896,17 +873,10 @@ namespace FCatFlasher.ViewModels
 
         private void BrowseTestFirmwareDirectory()
         {
-            var dialog = new OpenFolderDialog
-            {
-                Title = "Оберіть папку тестових прошивок",
-                Multiselect = false
-            };
+            string? path = _fileDialogs.BrowseTestFirmwareDirectory(TestFirmwareDirectory);
 
-            if (!string.IsNullOrWhiteSpace(TestFirmwareDirectory))
-                dialog.InitialDirectory = TestFirmwareDirectory;
-
-            if (dialog.ShowDialog() == true)
-                TestFirmwareDirectory = dialog.FolderName;
+            if (path != null)
+                TestFirmwareDirectory = path;
         }
 
         /// <summary>
@@ -973,21 +943,17 @@ namespace FCatFlasher.ViewModels
         /// </summary>
         private void StartRunTimer()
         {
-            ResetRunTimer();
-            _runTimer.Start();
+            _cycleTimer.StartRunTimer();
         }
 
         private void ResetRunTimer()
         {
-            _runStartedAt = DateTime.Now;
-            RunElapsedText = "00:00:00";
+            _cycleTimer.ResetRunTimer();
         }
 
         private void ResetProductionBoxTimer()
         {
-            _productionBoxTimerStarted = false;
-            _runTimer.Stop();
-            ResetRunTimer();
+            _cycleTimer.ResetProductionBoxTimer();
         }
 
         /// <summary>
@@ -995,24 +961,13 @@ namespace FCatFlasher.ViewModels
         /// </summary>
         private void StartProductionBoxTimerIfNeeded()
         {
-            if (_workMode != WorkMode.Production || _productionBoxTimerStarted)
-                return;
-
-            _productionBoxTimerStarted = true;
-            _startRunTimerOnBoardDetected = false;
-            _currentBoardStartedAt ??= DateTime.Now;
-            StartRunTimer();
+            if (_cycleTimer.StartProductionBoxTimerIfNeeded(_workMode == WorkMode.Production))
+                _startRunTimerOnBoardDetected = false;
         }
 
         private void StopRunTimer()
         {
-            _runTimer.Stop();
-        }
-
-        private void UpdateRunElapsed()
-        {
-            TimeSpan elapsed = DateTime.Now - _runStartedAt;
-            RunElapsedText = elapsed.ToString(@"hh\:mm\:ss", CultureInfo.InvariantCulture);
+            _cycleTimer.StopRunTimer();
         }
 
         /// <summary>
@@ -1021,7 +976,7 @@ namespace FCatFlasher.ViewModels
         private void ResetCycleData()
         {
             _currentBoardSerial = "";
-            _currentBoardStartedAt = null;
+            _cycleTimer.ResetBoardCycle();
             _lastConnectionError = "";
             _startingFlashAfterSerial = false;
             _serialEntryCts?.Cancel();
@@ -1096,7 +1051,7 @@ namespace FCatFlasher.ViewModels
         {
             if (!_stlinkSelectedForRun)
             {
-                await PowerCycleToStlinkMode();
+                await _stand.PowerCycleToStlinkMode();
                 _stlinkSelectedForRun = true;
             }
 
@@ -1112,8 +1067,8 @@ namespace FCatFlasher.ViewModels
 
             while (_cycleState == CycleState.WaitingBoard)
             {
-                if (!_standPowerOn)
-                    await SendStandCommand("POWER_ON", BoardInsertPowerOnDelayMs, enforceMinimumDelay: false);
+                if (!_stand.IsPowerOn)
+                    await _stand.SendCommand("POWER_ON", BoardInsertPowerOnDelayMs, enforceMinimumDelay: false);
 
                 if (_cycleState != CycleState.WaitingBoard)
                     return;
@@ -1127,7 +1082,7 @@ namespace FCatFlasher.ViewModels
                     _lastConnectionError = "";
                     ProgressValue = 20;
                     Log += "Плату знайдено\n";
-                    _currentBoardStartedAt = DateTime.Now;
+                    _cycleTimer.MarkBoardStarted();
 
                     if (_startRunTimerOnBoardDetected)
                     {
@@ -1135,10 +1090,10 @@ namespace FCatFlasher.ViewModels
                         _startRunTimerOnBoardDetected = false;
 
                         if (_workMode == WorkMode.Production)
-                            _productionBoxTimerStarted = true;
+                            _cycleTimer.MarkProductionBoxTimerStarted();
                     }
 
-                    if (_measureBoardCycleTime && !_runTimer.IsEnabled)
+                    if (_measureBoardCycleTime && !_cycleTimer.IsRunning)
                         StartRunTimer();
 
                     if (_workMode == WorkMode.TestFirmware)
@@ -1321,7 +1276,7 @@ namespace FCatFlasher.ViewModels
 
             Log += "\nWARNING: MCU/RDP не готові. Робимо power cycle і пробуємо ще раз...\n";
 
-            await PowerCycleToStlinkMode();
+            await _stand.PowerCycleToStlinkMode();
 
             return await _testFirmwareService.FlashAutoTestFirmwareWithUnlockSession();
         }
@@ -1336,9 +1291,9 @@ namespace FCatFlasher.ViewModels
             Log += "\nWARNING: MCU не визначився після RDP unlock. Робимо power cycle і пробуємо ще раз...\n";
 
             if (_workMode == WorkMode.Production)
-                await PowerOnToStlinkMode();
+                await _stand.PowerOnToStlinkMode();
             else
-                await PowerCycleToStlinkMode();
+                await _stand.PowerCycleToStlinkMode();
 
             return await _testFirmwareService.FlashTestFirmwareForDevice(deviceType);
         }
@@ -1356,8 +1311,8 @@ namespace FCatFlasher.ViewModels
             Log += $"WARNING: MCU не визначився ({context}): {deviceType}\n";
             Log += "=== Повторно подаємо живлення в ST-LINK режимі ===\n";
 
-            await SendStandCommand("POWER_OFF", BoardInsertPowerOffDelayMs);
-            await SendStandCommand("POWER_ON", PowerOnSettleDelayMs, enforceMinimumDelay: false);
+            await _stand.SendCommand("POWER_OFF", BoardInsertPowerOffDelayMs);
+            await _stand.SendCommand("POWER_ON", StandController.PowerOnSettleDelayMs, enforceMinimumDelay: false);
 
             return await _firmwareService.GetDeviceType();
         }
@@ -1414,7 +1369,7 @@ namespace FCatFlasher.ViewModels
                 return result;
 
             Log += "WARNING: ST-LINK/API lost during flash. Повторно подаємо живлення і пробуємо ще раз...\n";
-            await PowerCycleToStlinkMode();
+            await _stand.PowerCycleToStlinkMode();
 
             return await _firmwareService.FlashProductionFirmware(firmwareToFlash);
         }
@@ -1431,7 +1386,7 @@ namespace FCatFlasher.ViewModels
                 return result;
 
             Log += "WARNING: ST-LINK/API lost during flash. Повторно подаємо живлення і пробуємо ще раз...\n";
-            await PowerCycleToStlinkMode();
+            await _stand.PowerCycleToStlinkMode();
 
             return await _firmwareService.FlashProductionFirmwareSession(
                 firmwareToFlash,
@@ -1708,123 +1663,15 @@ namespace FCatFlasher.ViewModels
                 MessageBoxImage.Error);
         }
 
-        /// <summary>
-        /// Надсилає команду стенду з блокуванням паралельних команд і контрольованою затримкою.
-        /// </summary>
-        private async Task SendStandCommand(
-            string command,
-            int settleDelayMs = StandCommandSettleDelayMs,
-            bool enforceMinimumDelay = true)
-        {
-            await _standCommandLock.WaitAsync();
-
-            try
-            {
-                if (!_serial.IsOpen)
-                    throw new InvalidOperationException($"COM port is closed. Command not sent: {command}");
-
-                _serial.Send(command);
-                UpdateStandPowerState(command);
-
-                int delayMs = enforceMinimumDelay
-                    ? Math.Max(settleDelayMs, StandCommandSettleDelayMs)
-                    : settleDelayMs;
-
-                await Task.Delay(delayMs);
-            }
-            finally
-            {
-                _standCommandLock.Release();
-            }
-        }
-
-        private static bool IsPowerCommand(string command)
-        {
-            return command is "POWER_ON" or "POWER_OFF";
-        }
-
-        /// <summary>
-        /// Оновлює локальний прапорець живлення стенда після POWER_ON або POWER_OFF.
-        /// </summary>
-        private void UpdateStandPowerState(string command)
-        {
-            if (command == "POWER_ON")
-                _standPowerOn = true;
-            else if (command == "POWER_OFF")
-                _standPowerOn = false;
-        }
-
-        private async Task SetUartMode(int settleDelayMs = UartModeSwitchDelayMs)
-        {
-            await SendStandCommand("UART_ON", settleDelayMs);
-        }
-
-        private async Task SetStlinkMode(int settleDelayMs = StlinkModeSwitchDelayMs)
-        {
-            await SendStandCommand("STLINK_ON", settleDelayMs);
-        }
-
-        /// <summary>
-        /// Перемикає стенд у UART режим і гарантує подане живлення для тесту.
-        /// </summary>
-        private async Task SetUartModeAndEnsurePowerOn(
-            int powerOffDelayMs = UartPowerOffDelayMs,
-            int modeSwitchDelayMs = UartModeSwitchDelayMs,
-            int powerOnDelayMs = PowerOnSettleDelayMs)
-        {
-            await SendStandCommand("POWER_OFF", powerOffDelayMs);
-            await SetUartMode(modeSwitchDelayMs);
-            await SendStandCommand("POWER_ON", powerOnDelayMs, enforceMinimumDelay: false);
-        }
-
-        /// <summary>
-        /// Перемикає комутацію на UART без вимкнення живлення плати.
-        /// </summary>
-        private async Task SetUartModeKeepingPowerOn(
-            int modeSwitchDelayMs = UartModeSwitchDelayMs,
-            int powerOnDelayMs = 0)
-        {
-            await SetUartMode(modeSwitchDelayMs);
-            await SendStandCommand("POWER_ON", powerOnDelayMs, enforceMinimumDelay: false);
-        }
-
-        /// <summary>
-        /// Перемикає стенд у ST-LINK режим і подає живлення перед прошивкою.
-        /// </summary>
-        private async Task SetStlinkModeAndEnsurePowerOn(
-            int modeSwitchDelayMs = StlinkModeSwitchDelayMs,
-            int powerOnDelayMs = UartPowerOnSettleDelayMs)
-        {
-            bool powerAlreadyOn = _standPowerOn;
-            await SetStlinkMode(modeSwitchDelayMs);
-
-            if (!powerAlreadyOn)
-                await SendStandCommand("POWER_ON", powerOnDelayMs, enforceMinimumDelay: false);
-        }
-        /// <summary>
-        /// Виконує power-cycle плати у ST-LINK режимі для відновлення звязку.
-        /// </summary>
-        private async Task PowerCycleToStlinkMode()
-        {
-            await SendStandCommand("POWER_OFF", StlinkPowerOffDelayMs);
-            await SetStlinkModeAndEnsurePowerOn(
-                StlinkModeSwitchDelayMs,
-                PowerOnSettleDelayMs);
-        }
-
-        private async Task PowerOnToStlinkMode()
-        {
-            await SetStlinkModeAndEnsurePowerOn();
-        }
 
         private async Task CycleBoardPowerWhileWaiting()
         {
-            await SendStandCommand("POWER_OFF", BoardInsertPowerOffDelayMs);
+            await _stand.SendCommand("POWER_OFF", BoardInsertPowerOffDelayMs);
 
             if (_cycleState != CycleState.WaitingBoard)
                 return;
 
-            await SendStandCommand("POWER_ON", BoardInsertPowerOnDelayMs, enforceMinimumDelay: false);
+            await _stand.SendCommand("POWER_ON", BoardInsertPowerOnDelayMs, enforceMinimumDelay: false);
         }
 
         /// <summary>
@@ -1837,7 +1684,7 @@ namespace FCatFlasher.ViewModels
 
             Log += $"WARNING: ST-LINK немає зв'язку ({context}). Повторно подаємо живлення...\n";
 
-            await PowerCycleToStlinkMode();
+            await _stand.PowerCycleToStlinkMode();
 
             if (await _firmwareService.CheckConnection())
             {
@@ -1872,18 +1719,18 @@ namespace FCatFlasher.ViewModels
 
             if (ShouldUseOptimizedProductionFlashMode())
             {
-                await SetUartModeKeepingPowerOn();
+                await _stand.SetUartModeKeepingPowerOn();
             }
             else if (_workMode == WorkMode.Reflash)
             {
-                await SetUartModeAndEnsurePowerOn(
+                await _stand.SetUartModeAndEnsurePowerOn(
                     powerOffDelayMs: 400,
                     modeSwitchDelayMs: 100,
                     powerOnDelayMs: 0);
             }
             else
             {
-                await SetUartModeAndEnsurePowerOn();
+                await _stand.SetUartModeAndEnsurePowerOn();
             }
 
             Status = "Testing";
@@ -1895,8 +1742,8 @@ namespace FCatFlasher.ViewModels
         {
             _cycleState = CycleState.WaitingRemove;
 
-            await SendStandCommand("POWER_OFF", UartPowerOffDelayMs);
-            await SetStlinkMode();
+            await _stand.SendCommand("POWER_OFF", StandController.UartPowerOffDelayMs);
+            await _stand.SetStlinkMode();
             await Task.Delay(100);
 
             await WaitBoardRemovedAfterError();
@@ -1943,7 +1790,7 @@ namespace FCatFlasher.ViewModels
         /// </summary>
         private async Task CompleteSuccessfulTestOnly()
         {
-            await SendStandCommand("BUZZ_OK", BuzzerOkDelayMs);
+            await _stand.SendCommand("BUZZ_OK", BuzzerOkDelayMs);
             _testOnlyMode = false;
 
             Status = "Test OK";
@@ -2101,7 +1948,7 @@ namespace FCatFlasher.ViewModels
         /// </summary>
         private async Task CompleteSuccessfulFlash(string firmwareToFlash)
         {
-            await SendStandCommand("BUZZ_OK", BuzzerOkDelayMs);
+            await _stand.SendCommand("BUZZ_OK", BuzzerOkDelayMs);
 
             Status = "Flash OK";
             ProgressValue = 100;
@@ -2198,7 +2045,7 @@ namespace FCatFlasher.ViewModels
         {
             Status = "Power off";
 
-            await SendStandCommand("POWER_OFF", PowerOffBeforeRestartDelayMs);
+            await _stand.SendCommand("POWER_OFF", PowerOffBeforeRestartDelayMs);
 
             if (_completedBox != null)
             {
@@ -2233,7 +2080,7 @@ namespace FCatFlasher.ViewModels
 
             Status = "Power off";
 
-            await SendStandCommand("POWER_OFF", PowerOffBeforeRestartDelayMs);
+            await _stand.SendCommand("POWER_OFF", PowerOffBeforeRestartDelayMs);
 
             if (_completedBox != null)
             {
@@ -2253,12 +2100,11 @@ namespace FCatFlasher.ViewModels
 
         private void LogCurrentBoardCycleTime()
         {
-            if (_currentBoardStartedAt == null)
+            TimeSpan? elapsed = _cycleTimer.FinishBoardCycle();
+            if (elapsed == null)
                 return;
 
-            TimeSpan elapsed = DateTime.Now - _currentBoardStartedAt.Value;
             Log += $"Час циклу плати: {elapsed:hh\\:mm\\:ss}\n";
-            _currentBoardStartedAt = null;
         }
 
         private async Task WaitUntilBoardRemoved()
@@ -2267,11 +2113,11 @@ namespace FCatFlasher.ViewModels
 
             while (_cycleState == CycleState.WaitingRemove)
             {
-                await SendStandCommand("POWER_ON", BoardInsertPowerOnDelayMs, enforceMinimumDelay: false);
+                await _stand.SendCommand("POWER_ON", BoardInsertPowerOnDelayMs, enforceMinimumDelay: false);
 
                 bool boardPresent = await _firmwareService.CheckBoardPresence();
 
-                await SendStandCommand("POWER_OFF", BoardInsertPowerOffDelayMs);
+                await _stand.SendCommand("POWER_OFF", BoardInsertPowerOffDelayMs);
 
                 if (!boardPresent)
                     return;
@@ -2309,8 +2155,8 @@ namespace FCatFlasher.ViewModels
             {
                 _cycleState = CycleState.Idle;
 
-                await SendStandCommand("PWM_STOP", StandCommandSettleDelayMs);
-                await SendStandCommand("POWER_OFF", 100);
+                await _stand.SendCommand("PWM_STOP", StandController.CommandSettleDelayMs);
+                await _stand.SendCommand("POWER_OFF", 100);
 
                 StopRunTimer();
                 ResetCycleData();
@@ -2444,55 +2290,18 @@ namespace FCatFlasher.ViewModels
 
             try
             {
-                switch (_footerMode)
+                LocalDataTableSnapshot table = _footerMode switch
                 {
-                    case WorkMode.TestFirmware:
-                        SetLocalDataHeaders("", "", "", "", "");
-                        LocalDataEmptyText = "У тестовій прошивці локальні дані не записуються.";
-                        break;
+                    WorkMode.TestFirmware => _localDataTables.BuildTestFirmware(),
+                    WorkMode.Reflash => _localDataTables.BuildReflash(DateTime.Today),
+                    _ => _localDataTables.BuildProduction(
+                        DateTime.Today,
+                        _productionBoxActive,
+                        BoxQuantity,
+                        FirmwareName)
+                };
 
-                    case WorkMode.Reflash:
-                        SetLocalDataHeaders("Зам.", "Прошивка", "К-сть", "Дати", "");
-                        LocalDataEmptyText = "Немає локальних даних перепрошивки.";
-
-                        foreach (ReworkSummary summary in _localDatabaseService.LoadPendingReworkSummariesFrom(DateTime.Today))
-                        {
-                            LocalDataRows.Add(new LocalDataRow
-                            {
-                                Column1 = GetLastOrderDigits(summary.OrderId),
-                                Column2 = summary.FirmwareName,
-                                Column3 = summary.Quantity.ToString(CultureInfo.InvariantCulture),
-                                Column4 = summary.DateRangeText,
-                                KeyOrderId = summary.OrderId,
-                                KeyFirmwareName = summary.FirmwareName,
-                                CanDelete = true
-                            });
-                        }
-
-                        break;
-
-                    default:
-                        SetLocalDataHeaders("ID коробки", "Діапазон", "К-сть", "Прошивка", "");
-                        LocalDataEmptyText = "Немає локальних коробок.";
-
-                        AddCurrentProductionBoxRow();
-
-                        foreach (BoxReport report in _localDatabaseService.LoadPendingBoxReportsFrom(DateTime.Today))
-                        {
-                            LocalDataRows.Add(new LocalDataRow
-                            {
-                                Column1 = report.BoxNumber.ToString(CultureInfo.InvariantCulture),
-                                Column2 = FormatSerialRangesForDisplay(report.SerialRangeText),
-                                Column3 = report.Quantity.ToString(CultureInfo.InvariantCulture),
-                                Column4 = report.FirmwareName
-                            });
-                        }
-
-                        break;
-                }
-
-                if (LocalDataRows.Count > 0)
-                    LocalDataEmptyText = string.Empty;
+                ApplyLocalDataTable(table);
             }
             catch (Exception ex)
             {
@@ -2500,42 +2309,17 @@ namespace FCatFlasher.ViewModels
             }
         }
 
-        private void AddCurrentProductionBoxRow()
+        private void ApplyLocalDataTable(LocalDataTableSnapshot table)
         {
-            if (!_productionBoxActive)
-                return;
+            LocalDataHeader1 = table.Header1;
+            LocalDataHeader2 = table.Header2;
+            LocalDataHeader3 = table.Header3;
+            LocalDataHeader4 = table.Header4;
+            LocalDataHeader5 = table.Header5;
+            LocalDataEmptyText = table.EmptyText;
 
-            BoxReport? currentBox = _boxTracking.GetCurrentBoxReport(BoxQuantity, FirmwareName);
-
-            if (currentBox == null || currentBox.Quantity >= BoxQuantity)
-                return;
-
-            LocalDataRows.Add(new LocalDataRow
-            {
-                Column1 = currentBox.BoxNumber.ToString(CultureInfo.InvariantCulture),
-                Column2 = string.Empty,
-                Column3 = currentBox.Quantity.ToString(CultureInfo.InvariantCulture),
-                Column4 = currentBox.FirmwareName
-            });
-        }
-
-        private static string FormatSerialRangesForDisplay(string serialRanges)
-        {
-            return serialRanges.Replace(", ", Environment.NewLine);
-        }
-
-        private void SetLocalDataHeaders(
-            string header1,
-            string header2,
-            string header3,
-            string header4,
-            string header5)
-        {
-            LocalDataHeader1 = header1;
-            LocalDataHeader2 = header2;
-            LocalDataHeader3 = header3;
-            LocalDataHeader4 = header4;
-            LocalDataHeader5 = header5;
+            foreach (LocalDataRow row in table.Rows)
+                LocalDataRows.Add(row);
         }
 
         private void DeleteLocalDataRow(LocalDataRow? row)
@@ -2567,15 +2351,6 @@ namespace FCatFlasher.ViewModels
             }
         }
 
-        private static string GetLastOrderDigits(string orderId)
-        {
-            string digits = new(orderId.Where(char.IsDigit).ToArray());
-
-            if (digits.Length <= 4)
-                return digits;
-
-            return digits[^4..];
-        }
 
         /// <summary>
         /// Реєструє плату через API або локально, якщо API недоступний.
