@@ -4,14 +4,15 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Title="Початок прошивки"
     Width="460"
-    Height="320"
+    Height="390"
     MinWidth="460"
-    MinHeight="320"
+    MinHeight="390"
     ResizeMode="NoResize"
     WindowStartupLocation="CenterOwner">
 
     <Grid Margin="24">
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -42,15 +43,35 @@
                 VerticalContentAlignment="Center" />
         </StackPanel>
 
+        <StackPanel
+            x:Name="ExistingBoxPanel"
+            Grid.Row="3"
+            Margin="0,14,0,0"
+            Visibility="Collapsed">
+            <TextBlock
+                x:Name="ExistingBoxTextBlock"
+                Margin="0,0,0,8"
+                FontWeight="Bold"
+                TextWrapping="Wrap" />
+            <RadioButton
+                x:Name="ContinueExistingBoxRadioButton"
+                Margin="0,0,0,6"
+                Content="Продовжити існуючу коробку"
+                IsChecked="True" />
+            <RadioButton
+                x:Name="StartNewBoxRadioButton"
+                Content="Створити нову коробку" />
+        </StackPanel>
+
         <TextBlock
             x:Name="ErrorTextBlock"
-            Grid.Row="3"
+            Grid.Row="4"
             Margin="0,10,0,0"
             Foreground="DarkRed"
             TextWrapping="Wrap" />
 
         <StackPanel
-            Grid.Row="4"
+            Grid.Row="5"
             Margin="0,16,0,0"
             HorizontalAlignment="Right"
             Orientation="Horizontal">

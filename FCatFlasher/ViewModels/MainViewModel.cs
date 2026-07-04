@@ -1,4 +1,4 @@
-using FCatFlasher.Helpers;
+﻿using FCatFlasher.Helpers;
 using FCatFlasher.Models;
 using FCatFlasher.Services;
 using FCatFlasher.Services.Workflows;
@@ -57,6 +57,9 @@ namespace FCatFlasher.ViewModels
         private bool _testOnlyMode;
         private bool _startRunTimerOnBoardDetected;
         private bool _startingFlashAfterSerial;
+        private readonly object _backgroundSyncLock = new();
+        private bool _backgroundSyncRunning;
+        private bool _backgroundSyncRequested;
         private CancellationTokenSource? _serialEntryCts;
 
         private enum WorkMode
@@ -101,6 +104,7 @@ namespace FCatFlasher.ViewModels
         public ICommand BrowseC0FirmwareCommand { get; }
         public ICommand BrowseTestFirmwareDirectoryCommand { get; }
         public ICommand StopCommand { get; }
+        public RelayCommand NewProductionBoxCommand { get; }
         public ICommand OpenProductionReportCommand { get; }
         public ICommand OpenReworkReportCommand { get; }
 
@@ -342,6 +346,7 @@ namespace FCatFlasher.ViewModels
                 FlashCommand.RaiseCanExecuteChanged();
                 ReflashCommand.RaiseCanExecuteChanged();
                 ReflashTestFirmwareCommand.RaiseCanExecuteChanged();
+                NewProductionBoxCommand?.RaiseCanExecuteChanged();
             }
         }
 
@@ -663,6 +668,9 @@ namespace FCatFlasher.ViewModels
             OpenSettingsCommand = new RelayCommand(OpenSettings);
             SyncPendingCommand = new RelayCommand(SyncPendingData, () => !IsBusy);
             StopCommand = new RelayCommand(async () => await StopAll());
+            NewProductionBoxCommand = new RelayCommand(
+                CompleteCurrentProductionBoxByOperator,
+                () => !IsBusy && _boxTracking.HasCurrentBox);
             OpenProductionReportCommand = new RelayCommand(() => OpenReportWindow(isReworkReport: false));
             OpenReworkReportCommand = new RelayCommand(() => OpenReportWindow(isReworkReport: true));
 
@@ -718,6 +726,67 @@ namespace FCatFlasher.ViewModels
         /// <summary>
         /// Відкриває звіт для виробничих або rework-операцій.
         /// </summary>
+        private void ScheduleBackgroundSync()
+        {
+            if (_currentUser.IsOffline)
+                return;
+
+            lock (_backgroundSyncLock)
+            {
+                _backgroundSyncRequested = true;
+
+                if (_backgroundSyncRunning)
+                    return;
+
+                _backgroundSyncRunning = true;
+            }
+
+            _ = Task.Run(BackgroundSyncLoop);
+        }
+
+        private void BackgroundSyncLoop()
+        {
+            while (TakeBackgroundSyncRequest())
+            {
+                try
+                {
+                    _localDatabaseService.SyncPending(_apiService);
+                }
+                catch (Exception ex)
+                {
+                    Application.Current.Dispatcher.BeginInvoke(() =>
+                    {
+                        Log += "SYNC BACKGROUND ERROR: " + ex.Message + "\n";
+                    });
+
+                    break;
+                }
+            }
+
+            bool restart;
+
+            lock (_backgroundSyncLock)
+            {
+                _backgroundSyncRunning = false;
+                restart = _backgroundSyncRequested;
+            }
+
+            if (restart)
+                ScheduleBackgroundSync();
+        }
+
+        private bool TakeBackgroundSyncRequest()
+        {
+            lock (_backgroundSyncLock)
+            {
+                if (!_backgroundSyncRequested)
+                    return false;
+
+                _backgroundSyncRequested = false;
+                return true;
+            }
+        }
+
         private void OpenReportWindow(bool isReworkReport)
         {
             var window = new global::FCatFlasher.ReportWindow(_localDatabaseService, isReworkReport)
@@ -820,13 +889,20 @@ namespace FCatFlasher.ViewModels
         /// </summary>
         private bool RequestProductionStartData()
         {
-            var window = new ProductionStartWindow(FirmwareName, BoxQuantity)
+            var window = new ProductionStartWindow(
+                FirmwareName,
+                BoxQuantity,
+                _boxTracking.CurrentBoxNumber,
+                _boxTracking.CurrentBoxCount)
             {
                 Owner = Application.Current.MainWindow
             };
 
             if (window.ShowDialog() != true)
                 return false;
+
+            if (window.StartMode == global::FCatFlasher.ProductionBoxStartMode.StartNew)
+                CompleteCurrentProductionBox(showDialog: false);
 
             FirmwareName = window.FirmwareName;
             BoxQuantity = window.BoxQuantity;
@@ -1561,7 +1637,8 @@ namespace FCatFlasher.ViewModels
         {
             try
             {
-                await Task.Delay(50, cancellationToken);
+                if (!ShouldUseOptimizedProductionFlashMode())
+                    await Task.Delay(50, cancellationToken);
 
                 if (_cycleState != CycleState.WaitingSerial)
                     return;
@@ -2206,10 +2283,54 @@ namespace FCatFlasher.ViewModels
                 _boxTracking.NextBox();
             }
 
+            NotifyProductionBoxChanged();
             LoadLocalDataForCurrentTab();
             OnPropertyChanged(nameof(FlashedToday));
 
             return report;
+        }
+
+        private void CompleteCurrentProductionBoxByOperator()
+        {
+            MessageBoxResult result = MessageBox.Show(
+                "Завершити поточну коробку і почати нову?",
+                "Нова коробка",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question);
+
+            if (result != MessageBoxResult.Yes)
+                return;
+
+            CompleteCurrentProductionBox(showDialog: true);
+        }
+
+        private void CompleteCurrentProductionBox(bool showDialog)
+        {
+            BoxReport? report = _boxTracking.CompleteCurrentBox(FirmwareName);
+
+            if (report == null)
+                return;
+
+            SaveBoxReport(report);
+            _boxTracking.NextBox();
+            ResetProductionBoxTimer();
+            NotifyProductionBoxChanged();
+            LoadLocalDataForCurrentTab();
+
+            if (showDialog)
+            {
+                Log += $"=== Коробку №{report.BoxNumber} завершено вручну: {report.Quantity} шт. ===\n";
+                MessageBox.Show(
+                    $"Коробку №{report.BoxNumber} завершено: {report.Quantity} шт.",
+                    "Нова коробка",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+            }
+        }
+
+        private void NotifyProductionBoxChanged()
+        {
+            NewProductionBoxCommand.RaiseCanExecuteChanged();
         }
 
         /// <summary>
@@ -2360,6 +2481,13 @@ namespace FCatFlasher.ViewModels
             if (_workMode == WorkMode.TestFirmware)
             {
                 RegisterTestDeviceInDatabase();
+                return;
+            }
+
+            if (_workMode == WorkMode.Production)
+            {
+                RegisterDeviceLocally(firmwarePath);
+                ScheduleBackgroundSync();
                 return;
             }
 
@@ -2608,33 +2736,23 @@ namespace FCatFlasher.ViewModels
         /// </summary>
         private void SaveBoxReport(BoxReport report)
         {
-            if (_currentUser.IsOffline)
-            {
-                try
-                {
-                    _localDatabaseService.AddPendingBoxReport(_currentUser.Id, report);
-                    LoadLocalDataForCurrentTab();
-                }
-                catch (Exception ex)
-                {
-                    Log += "LOCAL DB ERROR: " + ex.Message + "\n";
-                    Log += "=== TEST MODE: коробку не збережено в локальну базу ===\n";
-                }
+            SaveBoxReportLocallyAndScheduleSync(report);
+        }
 
-                return;
-            }
-
+        private void SaveBoxReportLocallyAndScheduleSync(BoxReport report)
+        {
             try
-            {
-                _apiService.AddBoxReport(_currentUser.Id, report);
-            }
-            catch (Exception ex)
             {
                 _localDatabaseService.AddPendingBoxReport(_currentUser.Id, report);
                 LoadLocalDataForCurrentTab();
 
-                Log += "API ERROR: " + ex.Message + "\n";
-                Log += "=== OFFLINE: коробку збережено локально для синхронізації ===\n";
+                if (!_currentUser.IsOffline)
+                    ScheduleBackgroundSync();
+            }
+            catch (Exception ex)
+            {
+                Log += "LOCAL DB ERROR: " + ex.Message + "\n";
+                Log += "=== TEST MODE: box report was not saved locally ===\n";
             }
         }
 

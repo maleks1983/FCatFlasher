@@ -10,10 +10,12 @@ namespace FCatFlasher.Services
 /// </summary>
     internal class FirmwareService
     {
-        private const string DefaultApiDirectory = "E:\\InicaalDG\\Cube\\api";
+        // private const string DefaultApiDirectory = "E:\\InicaalDG\\Cube\\api";
+        private const string DefaultApiDirectory = "C:\\Program Files\\STMicroelectronics\\STM32Cube\\STM32CubeProgrammer\\api";
         private const uint FlashBaseAddress = 0x08000000;
-        private const int ApiConnectionSettleDelayMs = 100;
-        private const int ApiSessionSettleDelayMs = 150;
+        private const int ApiInitialConnectionSettleDelayMs = 100;
+        private const int ApiErrorSessionSettleDelayMs = 150;
+        private const int ApiRetryConnectionSettleDelayMs = 150;
 
         public string LastConnectionError { get; private set; } = string.Empty;
         public string LastMcuName { get; private set; } = string.Empty;
@@ -316,41 +318,58 @@ namespace FCatFlasher.Services
                 try
                 {
                     using var api = Stm32CubeProgrammerApi.Connect(GetApiLibDirectory());
-                    return action(api);
+                    string result = action(api);
+                    SettleAfterApiError(result);
+                    return result;
                 }
                 catch (DllNotFoundException ex)
                 {
-                    return FormatApiUnavailable(ex.Message);
+                    return SettleAndReturnApiError(FormatApiUnavailable(ex.Message));
                 }
                 catch (EntryPointNotFoundException ex)
                 {
-                    return FormatApiUnavailable(ex.Message);
+                    return SettleAndReturnApiError(FormatApiUnavailable(ex.Message));
                 }
                 catch (BadImageFormatException ex)
                 {
-                    return FormatApiUnavailable(ex.Message);
+                    return SettleAndReturnApiError(FormatApiUnavailable(ex.Message));
                 }
                 catch (FileNotFoundException ex)
                 {
-                    return FormatApiUnavailable(ex.Message);
+                    return SettleAndReturnApiError(FormatApiUnavailable(ex.Message));
                 }
                 catch (DirectoryNotFoundException ex)
                 {
-                    return FormatApiUnavailable(ex.Message);
+                    return SettleAndReturnApiError(FormatApiUnavailable(ex.Message));
                 }
                 catch (InvalidOperationException ex)
                 {
-                    return FormatApiUnavailable(ex.Message);
+                    return SettleAndReturnApiError(FormatApiUnavailable(ex.Message));
                 }
                 catch (Exception ex)
                 {
-                    return $"ERROR: STM32CubeProgrammer API {title} failed: {ex.Message}";
-                }
-                finally
-                {
-                    Thread.Sleep(ApiSessionSettleDelayMs);
+                    return SettleAndReturnApiError($"ERROR: STM32CubeProgrammer API {title} failed: {ex.Message}");
                 }
             });
+        }
+
+        private static string SettleAndReturnApiError(string result)
+        {
+            Thread.Sleep(ApiErrorSessionSettleDelayMs);
+            return result;
+        }
+
+        private static void SettleAfterApiError(string result)
+        {
+            if (IsApiErrorResult(result))
+                Thread.Sleep(ApiErrorSessionSettleDelayMs);
+        }
+
+        private static bool IsApiErrorResult(string result)
+        {
+            return result.Contains("ERROR", StringComparison.OrdinalIgnoreCase) ||
+                   result.Contains("failed", StringComparison.OrdinalIgnoreCase) ||
+                   result.Contains("timeout", StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>
@@ -417,11 +436,13 @@ namespace FCatFlasher.Services
                         apiLibDirectory,
                         () =>
                         {
-                            ConfigureLoadPath(apiLibDirectory);
+                            bool loadPathWasConfigured = ConfigureLoadPath(apiLibDirectory);
 
                             NativeMethods.SetLoadersPath("./.");
                             NativeMethods.SetVerbosityLevel(0);
-                            Thread.Sleep(ApiConnectionSettleDelayMs);
+
+                            if (loadPathWasConfigured)
+                                Thread.Sleep(ApiInitialConnectionSettleDelayMs);
 
                             string apiDllPath = Path.Combine(apiLibDirectory, "CubeProgrammer_API.dll");
                             string pathInfo = $"API path: {apiLibDirectory}; CubeProgrammer_API.dll exists: {File.Exists(apiDllPath)}";
@@ -488,7 +509,7 @@ namespace FCatFlasher.Services
                     if (attempt > 1)
                     {
                         output.Append("retry after settle; ");
-                        Thread.Sleep(150);
+                        Thread.Sleep(ApiRetryConnectionSettleDelayMs);
                     }
 
                     foreach (int shared in sharedModes.Distinct())
@@ -618,10 +639,10 @@ namespace FCatFlasher.Services
                 }
             }
 
-            private static void ConfigureLoadPath(string apiLibDirectory)
+            private static bool ConfigureLoadPath(string apiLibDirectory)
             {
                 if (_loadPathConfigured)
-                    return;
+                    return false;
 
                 if (!Directory.Exists(apiLibDirectory))
                     throw new DirectoryNotFoundException(apiLibDirectory);
@@ -630,6 +651,7 @@ namespace FCatFlasher.Services
                     throw new InvalidOperationException($"SetDllDirectory failed for {apiLibDirectory}.");
 
                 _loadPathConfigured = true;
+                return true;
             }
 
             private static T WithApiWorkingDirectory<T>(string apiLibDirectory, Func<T> action)

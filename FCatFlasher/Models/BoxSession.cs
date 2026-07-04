@@ -9,6 +9,7 @@
 
         public int BoxNumber { get; set; } = 1;
         public int CurrentCount { get; private set; }
+        public bool HasBoards => CurrentCount > 0;
 
 /// <summary>
 /// Додає серійник прошитої плати до поточної коробки.

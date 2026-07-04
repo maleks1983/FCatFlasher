@@ -60,9 +60,11 @@ namespace FCatFlasher.Services
         /// <summary>
         /// Перемикає стенд у ST-LINK режим.
         /// </summary>
-        public async Task SetStlinkMode(int settleDelayMs = StlinkModeSwitchDelayMs)
+        public async Task SetStlinkMode(
+            int settleDelayMs = StlinkModeSwitchDelayMs,
+            bool enforceMinimumDelay = true)
         {
-            await SendCommand("STLINK_ON", settleDelayMs);
+            await SendCommand("STLINK_ON", settleDelayMs, enforceMinimumDelay);
         }
 
         /// <summary>
@@ -94,10 +96,11 @@ namespace FCatFlasher.Services
         /// </summary>
         public async Task SetStlinkModeAndEnsurePowerOn(
             int modeSwitchDelayMs = StlinkModeSwitchDelayMs,
-            int powerOnDelayMs = UartPowerOnSettleDelayMs)
+            int powerOnDelayMs = UartPowerOnSettleDelayMs,
+            bool enforceModeSwitchMinimumDelay = true)
         {
             bool powerAlreadyOn = IsPowerOn;
-            await SetStlinkMode(modeSwitchDelayMs);
+            await SetStlinkMode(modeSwitchDelayMs, enforceModeSwitchMinimumDelay);
 
             if (!powerAlreadyOn)
                 await SendCommand("POWER_ON", powerOnDelayMs, enforceMinimumDelay: false);

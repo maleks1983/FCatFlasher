@@ -11,6 +11,9 @@ namespace FCatFlasher.Services
         private readonly List<BoxReport> _boxReports = new();
 
         public int FlashedToday { get; private set; }
+        public bool HasCurrentBox => _boxSession.HasBoards;
+        public int CurrentBoxCount => _boxSession.CurrentCount;
+        public int CurrentBoxNumber => _boxSession.BoxNumber;
 
 /// <summary>
 /// Завантажує існуючі звіти, щоб продовжити нумерацію коробок.
@@ -43,6 +46,19 @@ namespace FCatFlasher.Services
                 return null;
 
             return _boxSession.CreateCurrentReport(firmwareName);
+        }
+
+/// <summary>
+/// Завершує поточну неповну коробку і повертає звіт для збереження.
+/// </summary>
+        public BoxReport? CompleteCurrentBox(string firmwareName)
+        {
+            if (!_boxSession.HasBoards)
+                return null;
+
+            var report = _boxSession.CreateCurrentReport(firmwareName);
+            _boxReports.Add(report);
+            return report;
         }
 
 /// <summary>

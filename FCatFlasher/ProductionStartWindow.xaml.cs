@@ -9,6 +9,15 @@ namespace FCatFlasher
     public partial class ProductionStartWindow : Window
     {
         public ProductionStartWindow(string firmwareName = "", int boxQuantity = 0)
+            : this(firmwareName, boxQuantity, 0, 0)
+        {
+        }
+
+        public ProductionStartWindow(
+            string firmwareName,
+            int boxQuantity,
+            int currentBoxNumber,
+            int currentBoxCount)
         {
             InitializeComponent();
 
@@ -17,6 +26,13 @@ namespace FCatFlasher
                 ? boxQuantity.ToString(CultureInfo.InvariantCulture)
                 : string.Empty;
 
+            if (currentBoxCount > 0)
+            {
+                ExistingBoxTextBlock.Text =
+                    $"Є незавершена коробка №{currentBoxNumber}: {currentBoxCount} шт.";
+                ExistingBoxPanel.Visibility = Visibility.Visible;
+            }
+
             FirmwareNameTextBox.SelectAll();
             FirmwareNameTextBox.Focus();
         }
@@ -24,6 +40,9 @@ namespace FCatFlasher
         public string FirmwareName { get; private set; } = string.Empty;
 
         public int BoxQuantity { get; private set; }
+
+        public ProductionBoxStartMode StartMode { get; private set; }
+            = ProductionBoxStartMode.ContinueExisting;
 
 /// <summary>
 /// Валідує стартові параметри виробництва і закриває діалог при успіху.
@@ -49,6 +68,9 @@ namespace FCatFlasher
 
             FirmwareName = firmwareName;
             BoxQuantity = boxQuantity;
+            StartMode = StartNewBoxRadioButton.IsChecked == true
+                ? ProductionBoxStartMode.StartNew
+                : ProductionBoxStartMode.ContinueExisting;
             DialogResult = true;
         }
 
@@ -59,5 +81,11 @@ namespace FCatFlasher
         {
             DialogResult = false;
         }
+    }
+
+    public enum ProductionBoxStartMode
+    {
+        ContinueExisting,
+        StartNew
     }
 }

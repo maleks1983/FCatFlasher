@@ -146,8 +146,15 @@
                                 <Button
                                     Width="100"
                                     Height="35"
+                                    Margin="0,0,10,0"
                                     Command="{Binding StopCommand}"
                                     Content="Стоп" />
+
+                                <Button
+                                    Width="120"
+                                    Height="35"
+                                    Command="{Binding NewProductionBoxCommand}"
+                                    Content="Нова коробка" />
                             </StackPanel>
 
                         </StackPanel>
