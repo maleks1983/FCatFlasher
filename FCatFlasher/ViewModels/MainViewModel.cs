@@ -1487,7 +1487,7 @@ namespace FCatFlasher.ViewModels
                 return $"Firmware not found: {firmwarePath}\n";
 
             if (deviceType == "C0" && !IsC0FirmwareNameValid(firmwarePath))
-                return $"ERROR: C0 firmware filename must contain c011: {firmwarePath}\n";
+                return $"ERROR: C0 firmware filename must contain c0: {firmwarePath}\n";
 
             return string.Empty;
         }
@@ -1966,7 +1966,7 @@ namespace FCatFlasher.ViewModels
                     _currentDeviceType == "C0" &&
                     !IsC0FirmwareNameValid(firmwareToFlash))
                 {
-                    Log += $"ERROR: C0 firmware filename must contain c011: {firmwareToFlash}\n";
+                    Log += $"ERROR: C0 firmware filename must contain c0: {firmwareToFlash}\n";
                     Status = "Wrong C0 firmware";
                     ProgressValue = 100;
                     Log += ">>> Заберіть плату зі стенда...\n";
@@ -2059,7 +2059,7 @@ namespace FCatFlasher.ViewModels
         {
             string fileName = System.IO.Path.GetFileName(firmwarePath);
 
-            return fileName.Contains("c011", StringComparison.OrdinalIgnoreCase);
+            return fileName.Contains("c0", StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>
@@ -2093,7 +2093,7 @@ namespace FCatFlasher.ViewModels
 
             if (_currentDeviceType == "C0" && !IsC0FirmwareNameValid(FirmwarePath))
             {
-                Log += $"ERROR: C0 firmware filename must contain c011: {FirmwarePath}\n";
+                Log += $"ERROR: C0 firmware filename must contain c0: {FirmwarePath}\n";
                 Status = "Wrong C0 firmware";
                 ProgressValue = 100;
                 Log += ">>> Заберіть плату зі стенда...\n";
@@ -2139,10 +2139,18 @@ namespace FCatFlasher.ViewModels
         }
 
         /// <summary>
-        /// Після помилки дає оператору паузу і переходить до очікування зняття плати.
+        /// Після помилки в новому виробничому режимі відразу запускає наступний цикл.
+        /// В інших режимах дає оператору паузу і очікує зняття плати.
         /// </summary>
         private async Task WaitBoardRemovedAfterError()
         {
+            if (ShouldUseOptimizedProductionFlashMode())
+            {
+                Log += "=== Після підтвердження помилки запускаємо наступний цикл ===\n";
+                await PowerOffAndRestartOptimizedProductionCycle();
+                return;
+            }
+
             await Task.Delay(CycleErrorDelayMs);
             await WaitBoardRemoved();
         }
