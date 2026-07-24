@@ -10,8 +10,6 @@ namespace FCatFlasher.Services
 /// </summary>
     internal class FirmwareService
     {
-        private const string DefaultApiDirectory = "D:\\api";
-        // private const string DefaultApiDirectory = "C:\\Program Files\\STMicroelectronics\\STM32Cube\\STM32CubeProgrammer\\api";
         private const uint FlashBaseAddress = 0x08000000;
         private const int ApiInitialConnectionSettleDelayMs = 100;
         private const int ApiErrorSessionSettleDelayMs = 150;
@@ -377,12 +375,30 @@ namespace FCatFlasher.Services
         /// </summary>
         private string GetApiLibDirectory()
         {
-            string defaultApiLibDirectory = Path.Combine(DefaultApiDirectory, "lib");
+            string localApiDirectory = Path.Combine(AppContext.BaseDirectory, "api", "lib");
+            string localApiDirectoryRoot = Path.GetDirectoryName(localApiDirectory)!;
 
-            if (Directory.Exists(defaultApiLibDirectory))
-                return defaultApiLibDirectory;
+            if (HasCompleteApiRuntime(localApiDirectory) &&
+                HasDeviceDatabase(localApiDirectoryRoot))
+                return localApiDirectory;
 
-            throw new DirectoryNotFoundException($"STM32CubeProgrammer API lib directory was not found: {defaultApiLibDirectory}");
+            throw new DirectoryNotFoundException(
+                $"Complete STM32CubeProgrammer API runtime was not found: {localApiDirectoryRoot}");
+        }
+
+        private static bool HasCompleteApiRuntime(string directory)
+        {
+            return File.Exists(Path.Combine(directory, "CubeProgrammer_API.dll")) &&
+                   Directory.Exists(Path.Combine(directory, "FlashLoader")) &&
+                   Directory.Exists(Path.Combine(directory, "ExternalLoader"));
+        }
+
+        private static bool HasDeviceDatabase(string apiDirectory)
+        {
+            string databaseDirectory = Path.Combine(apiDirectory, "Data_Base");
+
+            return Directory.Exists(databaseDirectory) &&
+                   Directory.EnumerateFiles(databaseDirectory, "*.xml").Any();
         }
 
         private static string FormatApiUnavailable(string message)

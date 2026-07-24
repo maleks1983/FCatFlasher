@@ -14,4 +14,17 @@
     <PackageReference Include="System.IO.Ports" Version="10.0.9" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="api\**\*" Exclude="api\Data_Base\**\*">
+      <TargetPath>api\lib\%(RecursiveDir)%(Filename)%(Extension)</TargetPath>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+    <Content Include="api\Data_Base\**\*">
+      <TargetPath>api\Data_Base\%(RecursiveDir)%(Filename)%(Extension)</TargetPath>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
 </Project>

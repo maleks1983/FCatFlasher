@@ -1273,7 +1273,6 @@ namespace FCatFlasher.ViewModels
             string error = _firmwareService.LastConnectionError;
 
             if (string.IsNullOrWhiteSpace(error) ||
-                error == "ST-LINK OK, target MCU not connected" ||
                 error == _lastConnectionError)
                 return;
 
