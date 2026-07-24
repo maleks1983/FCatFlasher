@@ -2,11 +2,11 @@
   "SelectedComPort": "COM5",
   "FirmwarePath": "C:\\work\\stm\\c011test\\Debug\\c011test_plus_crc.hex",
   "FirmwareName": "\u0435\u0434\u0440\u043E\u043D",
-  "ReworkFirmwareName": "\u0404\u0434\u0440\u043E\u043D",
+  "ReworkFirmwareName": "\u0431\u043E\u0439\u043E\u0432\u0456 \u043F\u0442\u0430\u0445\u0438 10g",
   "BoxQuantity": 100,
   "G0FirmwarePath": "D:\\flasher\\\u041F\u0440\u043E\u0448\u0438\u0432\u043A\u0438\\\u0404\u0434\u0440\u043E\u043D\\initiator_yedron_obydva_rezhymy.hex",
-  "C0FirmwarePath": "C:\\Users\\Admin\\Downloads\\c0_both_s2m_p0s_r_b3s_d30m_i12.00g.hex",
-  "ReworkOrderId": "59001696526633",
+  "C0FirmwarePath": "C:\\Users\\Admin\\Downloads\\c0_both_s30m_b3s_d150m_i10.00g_ff.hex",
+  "ReworkOrderId": "59001716205570",
   "TestFirmwareDirectory": "C:\\Program Files\\STMicroelectronics\\Flash\\",
   "ApiBaseUrl": "http://localhost:8080"
 }
