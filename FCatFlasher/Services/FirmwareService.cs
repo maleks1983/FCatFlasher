@@ -40,30 +40,18 @@ namespace FCatFlasher.Services
         /// </summary>
         public async Task<bool> CheckConnection()
         {
-            try
-            {
-                string apiResult = await RunApi(
-                    "CHECK CONNECTION",
-                    api =>
-                    {
-                        DeviceInfo deviceInfo = api.GetDeviceInfo();
+            return await CheckConnectionCore(
+                "CHECK CONNECTION",
+                api =>
+                {
+                    DeviceInfo deviceInfo = api.GetDeviceInfo();
 
-                        if (deviceInfo.Name.Length == 0)
-                            return "ERROR: STM32CubeProgrammer API connected, but device info is empty";
+                    if (deviceInfo.Name.Length == 0)
+                        return "ERROR: STM32CubeProgrammer API connected, but device info is empty";
 
-                        StoreMcuInfo(deviceInfo);
-                        return "OK";
-                    });
-
-                bool apiConnected = apiResult == "OK";
-                LastConnectionError = apiConnected ? string.Empty : FormatConnectionCheckError(apiResult);
-                return apiConnected;
-            }
-            catch (Exception ex)
-            {
-                LastConnectionError = ex.Message;
-                return false;
-            }
+                    StoreMcuInfo(deviceInfo);
+                    return "OK";
+                });
         }
 
         /// <summary>
@@ -71,11 +59,18 @@ namespace FCatFlasher.Services
         /// </summary>
         public async Task<bool> CheckBoardPresence()
         {
+            return await CheckConnectionCore(
+                "CHECK BOARD PRESENCE",
+                _ => "OK");
+        }
+
+        private async Task<bool> CheckConnectionCore(
+            string title,
+            Func<Stm32CubeProgrammerApi, string> check)
+        {
             try
             {
-                string apiResult = await RunApi(
-                    "CHECK BOARD PRESENCE",
-                    _ => "OK");
+                string apiResult = await RunApi(title, check);
 
                 bool apiConnected = apiResult == "OK";
                 LastConnectionError = apiConnected ? string.Empty : FormatConnectionCheckError(apiResult);
@@ -160,27 +155,6 @@ namespace FCatFlasher.Services
                     int resetResult = api.Reset();
                     return new StringBuilder()
                         .AppendLine(FormatApiResult("DOWNLOAD", downloadResult))
-                        .Append(FormatApiResult("RESET", resetResult))
-                        .ToString();
-                });
-
-            return apiResult;
-        }
-
-        /// <summary>
-        /// Встановлює RDP 0xBB після виробничої прошивки.
-        /// </summary>
-        public async Task<string> SetRdpProtected()
-        {
-            string apiResult = await RunApi(
-                "SET RDP 0xBB",
-                api =>
-                {
-                    int rdpResult = api.SendOptionBytesCommand("-ob rdp=0xbb");
-                    int resetResult = api.Reset();
-
-                    return new StringBuilder()
-                        .AppendLine(FormatApiResult("RDP 0xBB", rdpResult))
                         .Append(FormatApiResult("RESET", resetResult))
                         .ToString();
                 });
