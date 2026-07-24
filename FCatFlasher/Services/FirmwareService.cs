@@ -11,6 +11,8 @@ namespace FCatFlasher.Services
     internal class FirmwareService
     {
         private const uint FlashBaseAddress = 0x08000000;
+        private const string RdpUnlockCommand = "-ob rdp=0xaa";
+        private const string RdpProtectCommand = "-ob rdp=0xbb";
         private const int ApiInitialConnectionSettleDelayMs = 100;
         private const int ApiErrorSessionSettleDelayMs = 150;
         private const int ApiRetryConnectionSettleDelayMs = 150;
@@ -87,7 +89,7 @@ namespace FCatFlasher.Services
                 "UNLOCK RDP",
                 api =>
                 {
-                    int result = api.SendOptionBytesCommand("-ob rdp=0xaa");
+                    int result = api.SendOptionBytesCommand(RdpUnlockCommand);
                     return FormatApiResult("RDP 0xAA", result);
                 });
 
@@ -119,7 +121,7 @@ namespace FCatFlasher.Services
 
                     output.AppendLine("=== UNLOCK RDP 0xAA ===");
 
-                    int rdpResult = api.SendOptionBytesCommand("-ob rdp=0xaa");
+                    int rdpResult = api.SendOptionBytesCommand(RdpUnlockCommand);
                     output.Append(FormatApiResult("RDP 0xAA", rdpResult));
 
                     return output.ToString();
@@ -137,7 +139,7 @@ namespace FCatFlasher.Services
                 $"WRITE FIRMWARE: {firmwarePath}",
                 api =>
                 {
-                    int downloadResult = api.DownloadFile(firmwarePath, FlashBaseAddress, skipErase: false, verify: false);
+                    int downloadResult = DownloadFirmware(api, firmwarePath);
 
                     if (downloadResult != 0)
                         return FormatApiResult("DOWNLOAD", downloadResult);
@@ -225,11 +227,7 @@ namespace FCatFlasher.Services
         {
             var apiOutput = new StringBuilder();
 
-            int downloadResult = api.DownloadFile(
-                firmwarePath,
-                FlashBaseAddress,
-                skipErase: false,
-                verify: false);
+            int downloadResult = DownloadFirmware(api, firmwarePath);
 
             apiOutput.AppendLine(FormatApiResult("DOWNLOAD", downloadResult));
 
@@ -238,7 +236,7 @@ namespace FCatFlasher.Services
 
             apiOutput.AppendLine("=== SET RDP 0xBB ===");
 
-            int rdpResult = api.SendOptionBytesCommand("-ob rdp=0xbb");
+            int rdpResult = api.SendOptionBytesCommand(RdpProtectCommand);
             apiOutput.AppendLine(FormatApiResult("RDP 0xBB", rdpResult));
 
             if (rdpResult != 0)
@@ -248,6 +246,17 @@ namespace FCatFlasher.Services
             apiOutput.Append(FormatApiResult("RESET", resetResult));
 
             return apiOutput.ToString();
+        }
+
+        private static int DownloadFirmware(
+            Stm32CubeProgrammerApi api,
+            string firmwarePath)
+        {
+            return api.DownloadFile(
+                firmwarePath,
+                FlashBaseAddress,
+                skipErase: false,
+                verify: false);
         }
 
         private void StoreMcuInfo(DeviceInfo deviceInfo)
