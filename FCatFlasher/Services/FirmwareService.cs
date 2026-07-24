@@ -10,8 +10,8 @@ namespace FCatFlasher.Services
 /// </summary>
     internal class FirmwareService
     {
-        // private const string DefaultApiDirectory = "E:\\InicaalDG\\Cube\\api";
-        private const string DefaultApiDirectory = "C:\\Program Files\\STMicroelectronics\\STM32Cube\\STM32CubeProgrammer\\api";
+        private const string DefaultApiDirectory = "D:\\api";
+        // private const string DefaultApiDirectory = "C:\\Program Files\\STMicroelectronics\\STM32Cube\\STM32CubeProgrammer\\api";
         private const uint FlashBaseAddress = 0x08000000;
         private const int ApiInitialConnectionSettleDelayMs = 100;
         private const int ApiErrorSessionSettleDelayMs = 150;
