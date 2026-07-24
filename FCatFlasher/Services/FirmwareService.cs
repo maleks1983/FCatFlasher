@@ -294,27 +294,13 @@ namespace FCatFlasher.Services
                     SettleAfterApiError(result);
                     return result;
                 }
-                catch (DllNotFoundException ex)
-                {
-                    return SettleAndReturnApiError(FormatApiUnavailable(ex.Message));
-                }
-                catch (EntryPointNotFoundException ex)
-                {
-                    return SettleAndReturnApiError(FormatApiUnavailable(ex.Message));
-                }
-                catch (BadImageFormatException ex)
-                {
-                    return SettleAndReturnApiError(FormatApiUnavailable(ex.Message));
-                }
-                catch (FileNotFoundException ex)
-                {
-                    return SettleAndReturnApiError(FormatApiUnavailable(ex.Message));
-                }
-                catch (DirectoryNotFoundException ex)
-                {
-                    return SettleAndReturnApiError(FormatApiUnavailable(ex.Message));
-                }
-                catch (InvalidOperationException ex)
+                catch (Exception ex) when (
+                    ex is DllNotFoundException or
+                    EntryPointNotFoundException or
+                    BadImageFormatException or
+                    FileNotFoundException or
+                    DirectoryNotFoundException or
+                    InvalidOperationException)
                 {
                     return SettleAndReturnApiError(FormatApiUnavailable(ex.Message));
                 }
