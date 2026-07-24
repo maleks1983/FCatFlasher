@@ -25,12 +25,7 @@ namespace FCatFlasher.Services
         {
             string apiResult = await RunApi(
                 "GET DEVICE TYPE",
-                api =>
-                {
-                    DeviceInfo deviceInfo = api.GetDeviceInfo();
-                    StoreMcuInfo(deviceInfo);
-                    return GetDeviceTypeFromName(deviceInfo.Name);
-                });
+                DetectDeviceType);
 
             return apiResult;
         }
@@ -112,9 +107,7 @@ namespace FCatFlasher.Services
                 {
                     var output = new StringBuilder();
 
-                    DeviceInfo deviceInfo = api.GetDeviceInfo();
-                    StoreMcuInfo(deviceInfo);
-                    detectedDeviceType = GetDeviceTypeFromName(deviceInfo.Name);
+                    detectedDeviceType = DetectDeviceType(api);
 
                     output.AppendLine($"MCU: {detectedDeviceType}");
 
@@ -197,9 +190,7 @@ namespace FCatFlasher.Services
                 {
                     var apiOutput = new StringBuilder();
 
-                    DeviceInfo deviceInfo = api.GetDeviceInfo();
-                    StoreMcuInfo(deviceInfo);
-                    detectedDeviceType = GetDeviceTypeFromName(deviceInfo.Name);
+                    detectedDeviceType = DetectDeviceType(api);
 
                     apiOutput.AppendLine($"MCU: {detectedDeviceType}");
 
@@ -263,6 +254,13 @@ namespace FCatFlasher.Services
         {
             if (!string.IsNullOrWhiteSpace(deviceInfo.Name))
                 LastMcuName = deviceInfo.Name;
+        }
+
+        private string DetectDeviceType(Stm32CubeProgrammerApi api)
+        {
+            DeviceInfo deviceInfo = api.GetDeviceInfo();
+            StoreMcuInfo(deviceInfo);
+            return GetDeviceTypeFromName(deviceInfo.Name);
         }
 
         private static string GetDeviceTypeFromName(string deviceName)
