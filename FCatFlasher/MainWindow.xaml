@@ -121,13 +121,6 @@
                                     Content="Обрати" />
                             </StackPanel>
 
-                            <StackPanel Margin="0,10,0,0" Orientation="Horizontal">
-                                <CheckBox
-                                    Margin="0,0,20,0"
-                                    VerticalAlignment="Center"
-                                    Content="Новий режим прошивки"
-                                    IsChecked="{Binding UseOptimizedProductionFlashMode}" />
-                            </StackPanel>
                             <StackPanel Margin="0,25,0,0" Orientation="Horizontal">
                                 <Button
                                     Width="160"

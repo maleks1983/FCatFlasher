@@ -318,20 +318,6 @@ namespace FCatFlasher.ViewModels
             }
         }
 
-        private bool _useOptimizedProductionFlashMode = true;
-        public bool UseOptimizedProductionFlashMode
-        {
-            get => _useOptimizedProductionFlashMode;
-            set
-            {
-                if (_useOptimizedProductionFlashMode == value)
-                    return;
-
-                _useOptimizedProductionFlashMode = value;
-                OnPropertyChanged();
-                SaveSettings();
-            }
-        }
         private bool _isBusy;
         public bool IsBusy
         {
@@ -1098,26 +1084,18 @@ namespace FCatFlasher.ViewModels
         }
 
         /// <summary>
-        /// Вибирає стартовий сценарій: пропуск очікування плати для нового виробничого режиму або звичайне ST-LINK очікування.
+        /// У виробничому режимі плата вже встановлена; інші режими очікують її через ST-LINK.
         /// </summary>
         private async Task StartModeCycle()
         {
-            if (ShouldSkipProductionBoardDetection())
+            if (_workMode == WorkMode.Production)
             {
-                Log += "=== Новий режим: плата вже на стенді, очікування плати пропущено ===\n";
+                Log += "=== Плата вже на стенді, очікування плати пропущено ===\n";
                 await PrepareProductionWithDetectedMcu();
                 return;
             }
 
             await StartStlinkBoardDetectionCycle();
-        }
-
-        /// <summary>
-        /// Визначає, чи можна пропустити початкове очікування плати, бо вона вже на стенді.
-        /// </summary>
-        private bool ShouldSkipProductionBoardDetection()
-        {
-            return _workMode == WorkMode.Production && UseOptimizedProductionFlashMode;
         }
 
         /// <summary>
@@ -1149,9 +1127,7 @@ namespace FCatFlasher.ViewModels
                 if (_cycleState != CycleState.WaitingBoard)
                     return;
 
-                bool present = _workMode == WorkMode.Production
-                    ? await _firmwareService.CheckBoardPresence()
-                    : await _firmwareService.CheckConnection();
+                bool present = await _firmwareService.CheckConnection();
 
                 if (present)
                 {
@@ -1190,12 +1166,6 @@ namespace FCatFlasher.ViewModels
                         return;
                     }
 
-                    if (_workMode == WorkMode.Production)
-                    {
-                        await PrepareProductionWithDetectedMcu();
-                        return;
-                    }
-
                     Log += "ERROR: Unknown work mode\n";
                     await StopAll();
                     return;
@@ -1216,28 +1186,8 @@ namespace FCatFlasher.ViewModels
                 _cycleState = CycleState.Flashing;
                 _currentDeviceType = string.Empty;
 
-                if (ShouldUseOptimizedProductionFlashMode())
-                {
-                    StartProductionBoxTimerIfNeeded();
-                    await StartTest();
-                    return;
-                }
-
-                if (!ValidateProductionFirmwareFileExists())
-                {
-                    _cycleState = CycleState.WaitingRemove;
-
-                    await WaitBoardRemovedAfterError();
-                    return;
-                }
-
-                if (_singleProductionFlash)
-                {
-                    await StartTest();
-                    return;
-                }
-
-                WaitProductionSerialBeforeTest();
+                StartProductionBoxTimerIfNeeded();
+                await StartTest();
             }
             catch (Exception ex)
             {
@@ -1248,21 +1198,6 @@ namespace FCatFlasher.ViewModels
 
                 await WaitBoardRemovedAfterError();
             }
-        }
-
-        /// <summary>
-        /// Переводить виробничий цикл у стан очікування серійного номера перед старим сценарієм тесту.
-        /// </summary>
-        private void WaitProductionSerialBeforeTest()
-        {
-            _cycleState = CycleState.WaitingSerial;
-            Status = "Waiting serial";
-            ProgressValue = 40;
-            IsSerialInputEnabled = true;
-            Log += "Очікуємо серійник D + 7 цифр\n";
-
-            if (IsSerialReadyForCurrentMode(ScannedSerial))
-                ScheduleNextStepAfterSerialEntered();
         }
 
         /// <summary>
@@ -1538,17 +1473,10 @@ namespace FCatFlasher.ViewModels
 
                         if (_workMode == WorkMode.Production)
                         {
-                            if (ShouldUseOptimizedProductionFlashMode() &&
-                                !_singleProductionFlash &&
+                            if (!_singleProductionFlash &&
                                 !CaptureProductionSerialAfterSuccessfulTest())
                             {
                                 return;
-                            }
-
-                            if (!ShouldUseOptimizedProductionFlashMode() && !_singleProductionFlash)
-                            {
-                                _currentBoardSerial = ScannedSerial.Trim();
-                                ScannedSerial = "";
                             }
 
                             IsSerialInputEnabled = true;
@@ -1636,9 +1564,6 @@ namespace FCatFlasher.ViewModels
         {
             try
             {
-                if (!ShouldUseOptimizedProductionFlashMode())
-                    await Task.Delay(50, cancellationToken);
-
                 if (_cycleState != CycleState.WaitingSerial)
                     return;
 
@@ -1657,17 +1582,10 @@ namespace FCatFlasher.ViewModels
 
                 if (_workMode == WorkMode.Production)
                 {
-                    if (ShouldUseOptimizedProductionFlashMode())
-                    {
-                        _currentBoardSerial = ScannedSerial.Trim();
-                        ScannedSerial = "";
-                        IsSerialInputEnabled = true;
-                        await StopSuccessfulTestAndFlash();
-                        return;
-                    }
-
-                    StartProductionBoxTimerIfNeeded();
-                    await StartTest();
+                    _currentBoardSerial = ScannedSerial.Trim();
+                    ScannedSerial = "";
+                    IsSerialInputEnabled = true;
+                    await StopSuccessfulTestAndFlash();
                     return;
                 }
 
@@ -1776,14 +1694,6 @@ namespace FCatFlasher.ViewModels
         }
 
         /// <summary>
-        /// Визначає, чи активний новий виробничий сценарій прошивки.
-        /// </summary>
-        private bool ShouldUseOptimizedProductionFlashMode()
-        {
-            return _workMode == WorkMode.Production && UseOptimizedProductionFlashMode;
-        }
-
-        /// <summary>
         /// Запускає UART-тест у режимі, який відповідає поточному сценарію.
         /// </summary>
         private async Task StartTest()
@@ -1793,7 +1703,7 @@ namespace FCatFlasher.ViewModels
 
             _diagnosticsParser.Reset();
 
-            if (ShouldUseOptimizedProductionFlashMode())
+            if (_workMode == WorkMode.Production)
             {
                 await _stand.SetUartModeKeepingPowerOn();
             }
@@ -1948,7 +1858,7 @@ namespace FCatFlasher.ViewModels
             await StartFlashing(firmwareToFlash);
         }
 
-        private async Task StartFlashing(string firmwareToFlash, bool skipFirmwareValidation = false)
+        private async Task StartFlashing(string firmwareToFlash)
         {
             try
             {
@@ -1960,8 +1870,7 @@ namespace FCatFlasher.ViewModels
                 Log += "Прошивка...\n";
                 ClearSerialInputAfterFlashStart();
 
-                if (!skipFirmwareValidation &&
-                    (_workMode == WorkMode.Production || _workMode == WorkMode.Reflash) &&
+                if ((_workMode == WorkMode.Production || _workMode == WorkMode.Reflash) &&
                     _currentDeviceType == "C0" &&
                     !IsC0FirmwareNameValid(firmwareToFlash))
                 {
@@ -1976,7 +1885,7 @@ namespace FCatFlasher.ViewModels
                     return;
                 }
 
-                if (!skipFirmwareValidation && !System.IO.File.Exists(firmwareToFlash))
+                if (!System.IO.File.Exists(firmwareToFlash))
                 {
                     Log += $"Firmware not found: {firmwareToFlash}\n";
                     Status = "Firmware not found";
@@ -2044,9 +1953,9 @@ namespace FCatFlasher.ViewModels
 
             Log += ">>> Заберіть плату зі стенда...\n";
 
-            if (_workMode == WorkMode.Production && UseOptimizedProductionFlashMode)
+            if (_workMode == WorkMode.Production)
             {
-                await PowerOffAndRestartOptimizedProductionCycle();
+                await PowerOffAndRestartProductionCycle();
                 return;
             }
 
@@ -2061,48 +1970,6 @@ namespace FCatFlasher.ViewModels
             return fileName.Contains("c0", StringComparison.OrdinalIgnoreCase);
         }
 
-        /// <summary>
-        /// Перевіряє наявність вибраного виробничого HEX-файлу.
-        /// </summary>
-        private bool ValidateProductionFirmwareFileExists()
-        {
-            if (System.IO.File.Exists(FirmwarePath))
-                return true;
-
-            Log += $"Firmware not found: {FirmwarePath}\n";
-            Status = "Firmware not found";
-            ProgressValue = 100;
-            Log += ">>> Заберіть плату зі стенда...\n";
-            return false;
-        }
-
-        /// <summary>
-        /// Перевіряє відповідність файлу прошивки поточному типу MCU.
-        /// </summary>
-        private bool ValidateProductionFirmwareForDevice()
-        {
-            if (!System.IO.File.Exists(FirmwarePath))
-            {
-                Log += $"Firmware not found: {FirmwarePath}\n";
-                Status = "Firmware not found";
-                ProgressValue = 100;
-                Log += ">>> Заберіть плату зі стенда...\n";
-                return false;
-            }
-
-            if (_currentDeviceType == "C0" && !IsC0FirmwareNameValid(FirmwarePath))
-            {
-                Log += $"ERROR: C0 firmware filename must contain c0: {FirmwarePath}\n";
-                Status = "Wrong C0 firmware";
-                ProgressValue = 100;
-                Log += ">>> Заберіть плату зі стенда...\n";
-                return false;
-            }
-
-            Log += "=== MCU підходить для обраної прошивки ===\n";
-            return true;
-        }
-
         private void ClearSerialInputAfterFlashStart()
         {
             if (_workMode != WorkMode.Reflash)
@@ -2115,9 +1982,9 @@ namespace FCatFlasher.ViewModels
         }
 
         /// <summary>
-        /// У новому виробничому режимі вимикає живлення і відразу запускає наступний цикл.
+        /// У виробничому режимі вимикає живлення і відразу запускає наступний цикл.
         /// </summary>
-        private async Task PowerOffAndRestartOptimizedProductionCycle()
+        private async Task PowerOffAndRestartProductionCycle()
         {
             Status = "Power off";
 
@@ -2138,15 +2005,15 @@ namespace FCatFlasher.ViewModels
         }
 
         /// <summary>
-        /// Після помилки в новому виробничому режимі відразу запускає наступний цикл.
+        /// Після помилки у виробничому режимі відразу запускає наступний цикл.
         /// В інших режимах дає оператору паузу і очікує зняття плати.
         /// </summary>
         private async Task WaitBoardRemovedAfterError()
         {
-            if (ShouldUseOptimizedProductionFlashMode())
+            if (_workMode == WorkMode.Production)
             {
                 Log += "=== Після підтвердження помилки запускаємо наступний цикл ===\n";
-                await PowerOffAndRestartOptimizedProductionCycle();
+                await PowerOffAndRestartProductionCycle();
                 return;
             }
 
@@ -2809,8 +2676,6 @@ namespace FCatFlasher.ViewModels
             ReworkOrderId = settings.ReworkOrderId;
             TestFirmwareDirectory = settings.TestFirmwareDirectory;
             ApiBaseUrl = settings.ApiBaseUrl;
-            UseOptimizedProductionFlashMode = settings.UseOptimizedProductionFlashMode;
-
         }
 
         /// <summary>
@@ -2832,8 +2697,7 @@ namespace FCatFlasher.ViewModels
                 C0FirmwarePath = C0FirmwarePath,
                 ReworkOrderId = ReworkOrderId,
                 TestFirmwareDirectory = TestFirmwareDirectory,
-                ApiBaseUrl = ApiBaseUrl,
-                UseOptimizedProductionFlashMode = UseOptimizedProductionFlashMode
+                ApiBaseUrl = ApiBaseUrl
             });
         }
 

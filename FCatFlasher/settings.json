@@ -1,13 +1,12 @@
 {
   "SelectedComPort": "COM5",
-  "FirmwarePath": "D:\\flasher\\\u041D\u043E\u0432\u0430 STM\\\u0404\u0434\u0440\u043E\u043D \u0437 \u0434\u0432\u043E\u043C\u0430 \u0440\u0438\u0436\u0438\u043C\u0430\u043C\u0438 (\u0421\u0422\u041C)\\c011_fpv_edrones.hex",
+  "FirmwarePath": "C:\\work\\stm\\c011test\\Debug\\c011test_plus_crc.hex",
   "FirmwareName": "\u0435\u0434\u0440\u043E\u043D",
   "ReworkFirmwareName": "\u0404\u0434\u0440\u043E\u043D",
   "BoxQuantity": 100,
   "G0FirmwarePath": "D:\\flasher\\\u041F\u0440\u043E\u0448\u0438\u0432\u043A\u0438\\\u0404\u0434\u0440\u043E\u043D\\initiator_yedron_obydva_rezhymy.hex",
-  "C0FirmwarePath": "D:\\flasher\\\u041D\u043E\u0432\u0430 STM\\\u0404\u0434\u0440\u043E\u043D \u0437 \u0434\u0432\u043E\u043C\u0430 \u0440\u0438\u0436\u0438\u043C\u0430\u043C\u0438 (\u0421\u0422\u041C)\\c011_fpv_edrones.hex",
+  "C0FirmwarePath": "C:\\Users\\Admin\\Downloads\\c0_both_s2m_p0s_r_b3s_d30m_i12.00g.hex",
   "ReworkOrderId": "59001696526633",
   "TestFirmwareDirectory": "C:\\Program Files\\STMicroelectronics\\Flash\\",
-  "ApiBaseUrl": "http://localhost:8080",
-  "UseOptimizedProductionFlashMode": true
+  "ApiBaseUrl": "http://localhost:8080"
 }

@@ -15,6 +15,5 @@
         public string ReworkOrderId { get; set; } = "";
         public string TestFirmwareDirectory { get; set; } = @"D:\";
         public string ApiBaseUrl { get; set; } = "http://localhost:8080";
-        public bool UseOptimizedProductionFlashMode { get; set; } = true;
     }
 }
