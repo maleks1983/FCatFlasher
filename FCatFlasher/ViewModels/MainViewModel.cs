@@ -23,6 +23,7 @@ namespace FCatFlasher.ViewModels
         // private const int BoardRemovalPowerOffDelayMs = 100;
         private const int BuzzerOkDelayMs = 100;
         private const int CycleErrorDelayMs = 2000;
+        private const int SerialEntryDebounceDelayMs = 250;
         private const string TestRegistrationType = "TEST";
         private const string ProductionRegistrationType = "PRODUCTION";
         private const string ReworkRegistrationType = "REWORK";
@@ -46,6 +47,7 @@ namespace FCatFlasher.ViewModels
         private readonly FileDialogService _fileDialogs = new();
         private readonly SerialPortDiscoveryService _serialPorts = new();
         private readonly LocalDataTableService _localDataTables;
+        private IReadOnlyList<ReworkSummary>? _globalReworkSummaries;
         private bool _settingsLoaded;
         private string _currentDeviceType = "";
         private string _lastConnectionError = "";
@@ -57,6 +59,7 @@ namespace FCatFlasher.ViewModels
         private bool _testOnlyMode;
         private bool _startRunTimerOnBoardDetected;
         private bool _startingFlashAfterSerial;
+        private bool _retryingProductionBoard;
         private readonly object _backgroundSyncLock = new();
         private bool _backgroundSyncRunning;
         private bool _backgroundSyncRequested;
@@ -561,6 +564,7 @@ namespace FCatFlasher.ViewModels
                         return;
 
                     _workMode = WorkMode.Production;
+                    _retryingProductionBoard = false;
                     _stlinkSelectedForRun = false;
                     _productionBoxActive = true;
                     ResetProductionBoxTimer();
@@ -668,6 +672,7 @@ namespace FCatFlasher.ViewModels
             LoadApiData();
             LoadLocalDataForCurrentTab();
             _settingsLoaded = true;
+            ScheduleBackgroundSync();
         }
 
         /// <summary>
@@ -737,6 +742,13 @@ namespace FCatFlasher.ViewModels
                 try
                 {
                     _localDatabaseService.SyncPending(_apiService);
+                    IReadOnlyList<ReworkSummary>? globalReworks =
+                        _apiService.LoadReworkSummaries(DateTime.Today);
+                    Application.Current.Dispatcher.BeginInvoke(() =>
+                    {
+                        _globalReworkSummaries = globalReworks;
+                        LoadLocalDataForCurrentTab();
+                    });
                 }
                 catch (Exception ex)
                 {
@@ -1037,7 +1049,8 @@ namespace FCatFlasher.ViewModels
         /// </summary>
         private void ResetCycleData()
         {
-            _currentBoardSerial = "";
+            if (!_retryingProductionBoard)
+                _currentBoardSerial = "";
             _cycleTimer.ResetBoardCycle();
             _lastConnectionError = "";
             _startingFlashAfterSerial = false;
@@ -1489,7 +1502,7 @@ namespace FCatFlasher.ViewModels
                         {
                             _cycleState = CycleState.WaitingSerial;
                             IsSerialInputEnabled = true;
-                            Log += ">>> Введіть серійний номер D + від 6 цифр для початку прошивки...\n";
+                            Log += ">>> Введіть серійний номер D + 6 або 7 цифр для початку прошивки...\n";
 
                             if (IsSerialReadyForCurrentMode(ScannedSerial))
                                 ScheduleNextStepAfterSerialEntered();
@@ -1531,6 +1544,13 @@ namespace FCatFlasher.ViewModels
         /// </summary>
         private bool CaptureProductionSerialAfterSuccessfulTest()
         {
+            if (_retryingProductionBoard &&
+                !string.IsNullOrWhiteSpace(_currentBoardSerial))
+            {
+                Log += $">>> Повторна спроба для серійника {_currentBoardSerial}\n";
+                return true;
+            }
+
             if (IsSerialReadyForCurrentMode(ScannedSerial))
             {
                 _currentBoardSerial = ScannedSerial.Trim();
@@ -1564,6 +1584,11 @@ namespace FCatFlasher.ViewModels
         {
             try
             {
+                // A reflash serial may contain either 6 or 7 digits after D.
+                // Wait until the scanner finishes sending characters before accepting
+                // the shorter valid form.
+                await Task.Delay(SerialEntryDebounceDelayMs, cancellationToken);
+
                 if (_cycleState != CycleState.WaitingSerial)
                     return;
 
@@ -1615,7 +1640,7 @@ namespace FCatFlasher.ViewModels
         {
             string trimmedSerial = serial.Trim();
 
-            if (trimmedSerial.Length < 7 ||
+            if ((trimmedSerial.Length != 7 && trimmedSerial.Length != 8) ||
                 char.ToUpperInvariant(trimmedSerial[0]) != 'D')
                 return false;
 
@@ -1949,6 +1974,8 @@ namespace FCatFlasher.ViewModels
             if (!_skipFlashRegistration)
                 RegisterUniqueFlashedBoard();
 
+            _retryingProductionBoard = false;
+
             Log += "Прошивку завершено\n";
 
             Log += ">>> Заберіть плату зі стенда...\n";
@@ -2012,6 +2039,7 @@ namespace FCatFlasher.ViewModels
         {
             if (_workMode == WorkMode.Production)
             {
+                _retryingProductionBoard = !string.IsNullOrWhiteSpace(_currentBoardSerial);
                 Log += "=== Після підтвердження помилки запускаємо наступний цикл ===\n";
                 await PowerOffAndRestartProductionCycle();
                 return;
@@ -2110,6 +2138,7 @@ namespace FCatFlasher.ViewModels
                 await _stand.SendCommand("POWER_OFF", 100);
 
                 StopRunTimer();
+                _retryingProductionBoard = false;
                 ResetCycleData();
                 _testOnlyMode = false;
                 _skipFlashRegistration = false;
@@ -2221,6 +2250,7 @@ namespace FCatFlasher.ViewModels
             try
             {
                 _boxTracking.LoadReports(_apiService.LoadBoxReports());
+                _globalReworkSummaries = _apiService.LoadReworkSummaries(DateTime.Today);
                 LoadTodayCountersFromApi();
 
                 OnPropertyChanged(nameof(FlashedToday));
@@ -2234,6 +2264,7 @@ namespace FCatFlasher.ViewModels
 
         private void LoadOfflineData(string message)
         {
+            _globalReworkSummaries = null;
             try
             {
                 _boxTracking.LoadReports(_localDatabaseService.LoadPendingBoxReports());
@@ -2288,9 +2319,10 @@ namespace FCatFlasher.ViewModels
                 LocalDataTableSnapshot table = _footerMode switch
                 {
                     WorkMode.TestFirmware => _localDataTables.BuildTestFirmware(),
-                    WorkMode.Reflash => _localDataTables.BuildReflash(DateTime.Today),
-                    _ => _localDataTables.BuildProduction(
+                    WorkMode.Reflash => _localDataTables.BuildReflash(
                         DateTime.Today,
+                        _globalReworkSummaries),
+                    _ => _localDataTables.BuildProduction(
                         _productionBoxActive,
                         BoxQuantity,
                         FirmwareName)
@@ -2380,6 +2412,7 @@ namespace FCatFlasher.ViewModels
                 _apiService.AddDeviceRegistration(
                     _currentUser.Id,
                     GetCurrentBoardSerial(),
+                    GetCurrentMcuId(),
                     GetCurrentMcuName(),
                     GetCurrentFirmwareName(firmwarePath),
                     GetCurrentRegistrationType());
@@ -2430,6 +2463,7 @@ namespace FCatFlasher.ViewModels
                 _apiService.AddDeviceRegistration(
                     _currentUser.Id,
                     GetCurrentBoardSerial(),
+                    GetCurrentMcuId(),
                     GetCurrentMcuName(),
                     string.Empty,
                     TestRegistrationType);
@@ -2720,7 +2754,7 @@ namespace FCatFlasher.ViewModels
                 ? _reflashUniqueBoardCounter
                 : _productionUniqueBoardCounter;
 
-            if (counter.Register(GetCurrentBoardSerial()))
+            if (counter.Register(GetCurrentBoardSerial(), GetCurrentMcuId()))
                 OnPropertyChanged(nameof(UniqueFlashedSinceStart));
         }
 

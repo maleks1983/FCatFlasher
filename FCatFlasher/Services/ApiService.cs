@@ -37,7 +37,7 @@ namespace FCatFlasher.Services
 
             return new CurrentUser
             {
-                Id = response.Id,
+                Id = response.Id.ToString(),
                 Username = response.Username,
                 FullName = response.FullName
             };
@@ -49,6 +49,7 @@ namespace FCatFlasher.Services
         public void AddDeviceRegistration(
             string userId,
             string serialNumber,
+            string mcuId,
             string mcuName,
             string firmwareName,
             string registrationType)
@@ -58,6 +59,7 @@ namespace FCatFlasher.Services
                 new DeviceRegistrationRequest(
                     userId,
                     serialNumber,
+                    mcuId,
                     mcuName,
                     firmwareName,
                     registrationType,
@@ -115,6 +117,30 @@ namespace FCatFlasher.Services
         public IReadOnlyList<BoxReport> LoadBoxReports()
         {
             return Get<List<BoxReport>>("api/box-reports") ?? new List<BoxReport>();
+        }
+
+        public IReadOnlyList<ReworkSummary>? LoadReworkSummaries(DateTime from)
+        {
+            string fromText = Uri.EscapeDataString(from.Date.ToString("O"));
+            List<ReworkRegistrationResponse>? registrations =
+                Get<List<ReworkRegistrationResponse>>(
+                    $"api/rework-registrations?from={fromText}");
+
+            if (registrations == null)
+                return null;
+
+            return registrations
+                .GroupBy(item => new { item.OrderId, item.FirmwareName })
+                .Select(group => new ReworkSummary
+                {
+                    OrderId = group.Key.OrderId,
+                    FirmwareName = group.Key.FirmwareName,
+                    Quantity = group.Count(),
+                    FirstCreatedAt = group.Min(item => item.CreatedAt),
+                    LastCreatedAt = group.Max(item => item.CreatedAt)
+                })
+                .OrderByDescending(item => item.LastCreatedAt)
+                .ToList();
         }
 
 /// <summary>
@@ -180,7 +206,22 @@ namespace FCatFlasher.Services
                 .GetAwaiter()
                 .GetResult();
 
-            response.EnsureSuccessStatusCode();
+            if (response.IsSuccessStatusCode)
+                return;
+
+            string responseBody = response.Content
+                .ReadAsStringAsync()
+                .GetAwaiter()
+                .GetResult();
+
+            string details = string.IsNullOrWhiteSpace(responseBody)
+                ? "відповідь без тексту"
+                : responseBody.Trim();
+
+            throw new HttpRequestException(
+                $"POST {url}: HTTP {(int)response.StatusCode} ({response.ReasonPhrase}). {details}",
+                inner: null,
+                response.StatusCode);
         }
 
 /// <summary>
@@ -218,7 +259,7 @@ namespace FCatFlasher.Services
         private sealed record LoginRequest(string Username, string Password);
 
         private sealed record LoginResponse(
-            string Id,
+            JsonElement Id,
             string Username,
             string FullName,
             string? Token);
@@ -226,6 +267,7 @@ namespace FCatFlasher.Services
         private sealed record DeviceRegistrationRequest(
             string UserId,
             string SerialNumber,
+            string McuId,
             string McuName,
             string FirmwareName,
             string RegistrationType,
@@ -258,6 +300,14 @@ namespace FCatFlasher.Services
             long Id,
             string FirmwareName,
             string FirmwarePath);
+
+        private sealed record ReworkRegistrationResponse(
+            string OrderId,
+            string SerialNumber,
+            string FirmwareName,
+            string McuName,
+            string Result,
+            DateTime CreatedAt);
     }
 
 /// <summary>

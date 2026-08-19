@@ -69,12 +69,11 @@ namespace FCatFlasher.Services
             string serial,
             string firmwareName)
         {
-            FlashedToday++;
-
             if (boxQuantity <= 0)
                 return null;
 
             _boxSession.AddBoard(serial);
+            FlashedToday++;
 
             if (!_boxSession.IsFull(boxQuantity))
                 return null;

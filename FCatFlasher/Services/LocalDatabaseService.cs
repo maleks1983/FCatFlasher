@@ -55,7 +55,8 @@ namespace FCatFlasher.Services
                     mcu_name TEXT NOT NULL DEFAULT '',
                     firmware_name TEXT NOT NULL DEFAULT '',
                     registration_type TEXT NOT NULL DEFAULT 'PRODUCTION',
-                    created_at_ticks INTEGER NOT NULL
+                    created_at_ticks INTEGER NOT NULL,
+                    is_synced INTEGER NOT NULL DEFAULT 0
                 );
 
                 CREATE TABLE IF NOT EXISTS pending_box_reports (
@@ -67,7 +68,8 @@ namespace FCatFlasher.Services
                     serial_numbers TEXT NOT NULL DEFAULT '',
                     first_serial TEXT NOT NULL DEFAULT '',
                     last_serial TEXT NOT NULL DEFAULT '',
-                    created_at_ticks INTEGER NOT NULL
+                    created_at_ticks INTEGER NOT NULL,
+                    is_synced INTEGER NOT NULL DEFAULT 0
                 );
 
                 CREATE TABLE IF NOT EXISTS pending_rework_registrations (
@@ -80,7 +82,8 @@ namespace FCatFlasher.Services
                     mcu_id TEXT NOT NULL DEFAULT '',
                     mcu_name TEXT NOT NULL DEFAULT '',
                     result TEXT NOT NULL DEFAULT 'OK',
-                    created_at_ticks INTEGER NOT NULL
+                    created_at_ticks INTEGER NOT NULL,
+                    is_synced INTEGER NOT NULL DEFAULT 0
                 );
                 """;
 
@@ -91,6 +94,9 @@ namespace FCatFlasher.Services
             EnsureColumn(connection, "pending_device_registrations", "registration_type", "TEXT NOT NULL DEFAULT 'PRODUCTION'");
             EnsureColumn(connection, "pending_box_reports", "serial_numbers", "TEXT NOT NULL DEFAULT ''");
             EnsureColumn(connection, "pending_rework_registrations", "mcu_id", "TEXT NOT NULL DEFAULT ''");
+            EnsureColumn(connection, "pending_device_registrations", "is_synced", "INTEGER NOT NULL DEFAULT 0");
+            EnsureColumn(connection, "pending_box_reports", "is_synced", "INTEGER NOT NULL DEFAULT 0");
+            EnsureColumn(connection, "pending_rework_registrations", "is_synced", "INTEGER NOT NULL DEFAULT 0");
             EnsureUniquePendingReworkSerials(connection);
         }
 
@@ -100,14 +106,52 @@ namespace FCatFlasher.Services
         public void CacheUser(CurrentUser user, string password)
         {
             using var connection = OpenConnection();
+            using var transaction = connection.BeginTransaction();
+
+            using var migrateCommand = connection.CreateCommand();
+            migrateCommand.Transaction = transaction;
+            migrateCommand.CommandText =
+                """
+                UPDATE pending_device_registrations
+                SET user_id = $userId
+                WHERE user_id IN (
+                    SELECT user_id FROM cached_users WHERE lower(username) = lower($username)
+                )
+                OR NOT EXISTS (
+                    SELECT 1 FROM cached_users WHERE cached_users.user_id = pending_device_registrations.user_id
+                );
+
+                UPDATE pending_box_reports
+                SET user_id = $userId
+                WHERE user_id IN (
+                    SELECT user_id FROM cached_users WHERE lower(username) = lower($username)
+                )
+                OR NOT EXISTS (
+                    SELECT 1 FROM cached_users WHERE cached_users.user_id = pending_box_reports.user_id
+                );
+
+                UPDATE pending_rework_registrations
+                SET user_id = $userId
+                WHERE user_id IN (
+                    SELECT user_id FROM cached_users WHERE lower(username) = lower($username)
+                )
+                OR NOT EXISTS (
+                    SELECT 1 FROM cached_users WHERE cached_users.user_id = pending_rework_registrations.user_id
+                );
+                """;
+            migrateCommand.Parameters.AddWithValue("$userId", user.Id);
+            migrateCommand.Parameters.AddWithValue("$username", user.Username.Trim());
+            migrateCommand.ExecuteNonQuery();
+
             using var command = connection.CreateCommand();
+            command.Transaction = transaction;
 
             command.CommandText =
                 """
                 INSERT INTO cached_users (user_id, username, full_name, password_hash)
                 VALUES ($userId, $username, $fullName, $passwordHash)
-                ON CONFLICT(user_id) DO UPDATE SET
-                    username = excluded.username,
+                ON CONFLICT(username) DO UPDATE SET
+                    user_id = excluded.user_id,
                     full_name = excluded.full_name,
                     password_hash = excluded.password_hash;
                 """;
@@ -118,6 +162,7 @@ namespace FCatFlasher.Services
             command.Parameters.AddWithValue("$passwordHash", PasswordHasher.Hash(password));
 
             command.ExecuteNonQuery();
+            transaction.Commit();
         }
 
 /// <summary>
@@ -186,7 +231,8 @@ namespace FCatFlasher.Services
                     mcu_name = excluded.mcu_name,
                     firmware_name = excluded.firmware_name,
                     registration_type = excluded.registration_type,
-                    created_at_ticks = excluded.created_at_ticks;
+                    created_at_ticks = excluded.created_at_ticks,
+                    is_synced = 0;
                 """;
 
             command.Parameters.AddWithValue("$userId", userId);
@@ -263,7 +309,8 @@ namespace FCatFlasher.Services
                     mcu_id = excluded.mcu_id,
                     mcu_name = excluded.mcu_name,
                     result = excluded.result,
-                    created_at_ticks = excluded.created_at_ticks;
+                    created_at_ticks = excluded.created_at_ticks,
+                    is_synced = 0;
                 """;
 
             command.Parameters.AddWithValue("$userId", userId);
@@ -644,48 +691,80 @@ namespace FCatFlasher.Services
 /// </summary>
         public void SyncPending(ApiService apiService)
         {
-            SyncPendingDevices(apiService);
-            SyncPendingBoxes(apiService);
-            SyncPendingReworks(apiService);
+            var errors = new List<string>();
+
+            SyncPendingDevices(apiService, errors);
+            SyncPendingBoxes(apiService, errors);
+            SyncPendingReworks(apiService, errors);
+
+            if (errors.Count > 0)
+                throw new InvalidOperationException(string.Join(Environment.NewLine, errors));
         }
 
 /// <summary>
 /// Відправляє локальні реєстрації плат і видаляє успішно синхронізовані.
 /// </summary>
-        private void SyncPendingDevices(ApiService apiService)
+        private void SyncPendingDevices(ApiService apiService, List<string> errors)
         {
+            var pending = new List<(int Id, string UserId, string SerialNumber, string McuId,
+                string McuName, string FirmwareName, string RegistrationType)>();
+
             using var connection = OpenConnection();
             using var selectCommand = connection.CreateCommand();
 
             selectCommand.CommandText =
                 """
-                SELECT id, user_id, serial_number, mcu_name, firmware_name, registration_type
+                SELECT id, user_id, serial_number, mcu_id, mcu_name, firmware_name, registration_type
                 FROM pending_device_registrations
+                WHERE is_synced = 0
                 ORDER BY id;
                 """;
 
-            using SqliteDataReader reader = selectCommand.ExecuteReader();
-
-            while (reader.Read())
             {
-                int id = reader.GetInt32(0);
+                using SqliteDataReader reader = selectCommand.ExecuteReader();
 
-                apiService.AddDeviceRegistration(
-                    reader.GetString(1),
-                    reader.GetString(2),
-                    reader.GetString(3),
-                    reader.GetString(4),
-                    reader.GetString(5));
+                while (reader.Read())
+                {
+                    pending.Add((
+                        reader.GetInt32(0),
+                        reader.GetString(1),
+                        reader.GetString(2),
+                        reader.GetString(3),
+                        reader.GetString(4),
+                        reader.GetString(5),
+                        reader.GetString(6)));
+                }
+            }
 
-                DeleteById("pending_device_registrations", id);
+            foreach (var item in pending)
+            {
+                try
+                {
+                    apiService.AddDeviceRegistration(
+                        item.UserId,
+                        item.SerialNumber,
+                        item.McuId,
+                        item.McuName,
+                        item.FirmwareName,
+                        item.RegistrationType);
+
+                    MarkSynced("pending_device_registrations", item.Id);
+                }
+                catch (Exception ex)
+                {
+                    errors.Add($"Плата #{item.Id} ({item.SerialNumber}): {ex.Message}");
+                }
             }
         }
 
 /// <summary>
 /// Відправляє локальні коробки і видаляє успішно синхронізовані.
 /// </summary>
-        private void SyncPendingBoxes(ApiService apiService)
+        private void SyncPendingBoxes(ApiService apiService, List<string> errors)
         {
+            var pending = new List<(int Id, string UserId, int BoxNumber, int Quantity,
+                string FirmwareName, string SerialNumbers, string FirstSerial, string LastSerial)>();
+
             using var connection = OpenConnection();
             using var selectCommand = connection.CreateCommand();
 
@@ -693,36 +772,60 @@ namespace FCatFlasher.Services
                 """
                 SELECT id, user_id, box_number, quantity, firmware_name, serial_numbers, first_serial, last_serial
                 FROM pending_box_reports
+                WHERE is_synced = 0
                 ORDER BY id;
                 """;
 
-            using SqliteDataReader reader = selectCommand.ExecuteReader();
-
-            while (reader.Read())
             {
-                int id = reader.GetInt32(0);
+                using SqliteDataReader reader = selectCommand.ExecuteReader();
 
-                apiService.AddBoxReport(
-                    reader.GetString(1),
-                    new BoxReport
-                    {
-                        BoxNumber = reader.GetInt32(2),
-                        Quantity = reader.GetInt32(3),
-                        FirmwareName = reader.GetString(4),
-                        SerialNumbersText = reader.GetString(5),
-                        FirstSerial = reader.GetString(6),
-                        LastSerial = reader.GetString(7)
-                    });
+                while (reader.Read())
+                {
+                    pending.Add((
+                        reader.GetInt32(0),
+                        reader.GetString(1),
+                        reader.GetInt32(2),
+                        reader.GetInt32(3),
+                        reader.GetString(4),
+                        reader.GetString(5),
+                        reader.GetString(6),
+                        reader.GetString(7)));
+                }
+            }
 
-                DeleteById("pending_box_reports", id);
+            foreach (var item in pending)
+            {
+                try
+                {
+                    apiService.AddBoxReport(
+                        item.UserId,
+                        new BoxReport
+                        {
+                            BoxNumber = item.BoxNumber,
+                            Quantity = item.Quantity,
+                            FirmwareName = item.FirmwareName,
+                            SerialNumbersText = item.SerialNumbers,
+                            FirstSerial = item.FirstSerial,
+                            LastSerial = item.LastSerial
+                        });
+
+                    MarkSynced("pending_box_reports", item.Id);
+                }
+                catch (Exception ex)
+                {
+                    errors.Add($"Коробка #{item.Id} ({item.BoxNumber}): {ex.Message}");
+                }
             }
         }
 
 /// <summary>
 /// Відправляє локальні rework-записи і видаляє успішно синхронізовані.
 /// </summary>
-        private void SyncPendingReworks(ApiService apiService)
+        private void SyncPendingReworks(ApiService apiService, List<string> errors)
         {
+            var pending = new List<(int Id, string UserId, string OrderId, string SerialNumber,
+                string FirmwareName, string FirmwarePath, string McuId, string McuName, string Result)>();
+
             using var connection = OpenConnection();
             using var selectCommand = connection.CreateCommand();
 
@@ -730,38 +833,60 @@ namespace FCatFlasher.Services
                 """
                 SELECT id, user_id, order_id, serial_number, firmware_name, firmware_path, mcu_id, mcu_name, result
                 FROM pending_rework_registrations
+                WHERE is_synced = 0
                 ORDER BY id;
                 """;
 
-            using SqliteDataReader reader = selectCommand.ExecuteReader();
-
-            while (reader.Read())
             {
-                int id = reader.GetInt32(0);
+                using SqliteDataReader reader = selectCommand.ExecuteReader();
 
-                apiService.AddReworkRegistration(
-                    reader.GetString(1),
-                    reader.GetString(2),
-                    reader.GetString(3),
-                    reader.GetString(4),
-                    reader.GetString(5),
-                    reader.GetString(6),
-                    reader.GetString(7),
-                    reader.GetString(8));
+                while (reader.Read())
+                {
+                    pending.Add((
+                        reader.GetInt32(0),
+                        reader.GetString(1),
+                        reader.GetString(2),
+                        reader.GetString(3),
+                        reader.GetString(4),
+                        reader.GetString(5),
+                        reader.GetString(6),
+                        reader.GetString(7),
+                        reader.GetString(8)));
+                }
+            }
 
-                DeleteById("pending_rework_registrations", id);
+            foreach (var item in pending)
+            {
+                try
+                {
+                    apiService.AddReworkRegistration(
+                        item.UserId,
+                        item.OrderId,
+                        item.SerialNumber,
+                        item.FirmwareName,
+                        item.FirmwarePath,
+                        item.McuId,
+                        item.McuName,
+                        item.Result);
+
+                    MarkSynced("pending_rework_registrations", item.Id);
+                }
+                catch (Exception ex)
+                {
+                    errors.Add($"Rework #{item.Id} ({item.SerialNumber}): {ex.Message}");
+                }
             }
         }
 
 /// <summary>
 /// Видаляє запис із локальної таблиці за id.
 /// </summary>
-        private void DeleteById(string tableName, int id)
+        private void MarkSynced(string tableName, int id)
         {
             using var connection = OpenConnection();
             using var command = connection.CreateCommand();
 
-            command.CommandText = $"DELETE FROM {tableName} WHERE id = $id;";
+            command.CommandText = $"UPDATE {tableName} SET is_synced = 1 WHERE id = $id;";
             command.Parameters.AddWithValue("$id", id);
             command.ExecuteNonQuery();
         }
@@ -844,6 +969,14 @@ namespace FCatFlasher.Services
 /// </summary>
         private static void EnsureUniquePendingReworkSerials(SqliteConnection connection)
         {
+            if (IndexExists(connection, "ux_pending_rework_serial_regular")
+                && IndexExists(connection, "ux_pending_rework_mcu_without_serial")
+                && IndexExists(connection, "ux_pending_device_rework_serial_regular")
+                && IndexExists(connection, "ux_pending_device_mcu_without_serial"))
+            {
+                return;
+            }
+
             using var command = connection.CreateCommand();
             command.CommandText =
                 """
@@ -882,7 +1015,8 @@ namespace FCatFlasher.Services
                    OR mcu_id IN ('C0', 'STM32C0');
 
                 DELETE FROM pending_rework_registrations
-                WHERE id NOT IN (
+                WHERE upper(serial_number) <> 'D111111'
+                  AND id NOT IN (
                     SELECT existing.id
                     FROM pending_rework_registrations existing
                     WHERE NOT EXISTS (
@@ -901,6 +1035,7 @@ namespace FCatFlasher.Services
 
                 DELETE FROM pending_device_registrations
                 WHERE registration_type = 'REWORK'
+                  AND upper(serial_number) <> 'D111111'
                   AND id NOT IN (
                       SELECT existing.id
                       FROM pending_device_registrations existing
@@ -920,15 +1055,64 @@ namespace FCatFlasher.Services
                         )
                   );
 
-                CREATE UNIQUE INDEX IF NOT EXISTS ux_pending_rework_registrations_serial_number
-                ON pending_rework_registrations (serial_number COLLATE NOCASE);
+                DELETE FROM pending_rework_registrations
+                WHERE upper(serial_number) = 'D111111'
+                  AND mcu_id <> ''
+                  AND id NOT IN (
+                    SELECT MAX(id)
+                    FROM pending_rework_registrations
+                    WHERE upper(serial_number) = 'D111111'
+                      AND mcu_id <> ''
+                    GROUP BY lower(mcu_id)
+                  );
 
-                CREATE UNIQUE INDEX IF NOT EXISTS ux_pending_device_rework_serial_number
+                DELETE FROM pending_device_registrations
+                WHERE upper(serial_number) = 'D111111'
+                  AND mcu_id <> ''
+                  AND id NOT IN (
+                    SELECT MAX(id)
+                    FROM pending_device_registrations
+                    WHERE upper(serial_number) = 'D111111'
+                      AND mcu_id <> ''
+                    GROUP BY lower(mcu_id)
+                  );
+
+                DROP INDEX IF EXISTS ux_pending_rework_registrations_serial_number;
+                DROP INDEX IF EXISTS ux_pending_device_rework_serial_number;
+
+                CREATE UNIQUE INDEX IF NOT EXISTS ux_pending_rework_serial_regular
+                ON pending_rework_registrations (serial_number COLLATE NOCASE)
+                WHERE upper(serial_number) <> 'D111111';
+
+                CREATE UNIQUE INDEX IF NOT EXISTS ux_pending_device_rework_serial_regular
                 ON pending_device_registrations (serial_number COLLATE NOCASE)
-                WHERE registration_type = 'REWORK';
+                WHERE registration_type = 'REWORK'
+                  AND upper(serial_number) <> 'D111111';
+
+                CREATE UNIQUE INDEX IF NOT EXISTS ux_pending_rework_mcu_without_serial
+                ON pending_rework_registrations (mcu_id COLLATE NOCASE)
+                WHERE upper(serial_number) = 'D111111'
+                  AND mcu_id <> '';
+
+                DROP INDEX IF EXISTS ux_pending_device_rework_mcu_without_serial;
+
+                CREATE UNIQUE INDEX IF NOT EXISTS ux_pending_device_mcu_without_serial
+                ON pending_device_registrations (mcu_id COLLATE NOCASE)
+                WHERE upper(serial_number) = 'D111111'
+                  AND mcu_id <> '';
                 """;
 
             command.ExecuteNonQuery();
+        }
+
+        private static bool IndexExists(SqliteConnection connection, string indexName)
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText =
+                "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = $name LIMIT 1;";
+            command.Parameters.AddWithValue("$name", indexName);
+
+            return command.ExecuteScalar() != null;
         }
 
 /// <summary>

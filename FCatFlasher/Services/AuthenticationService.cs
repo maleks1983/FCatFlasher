@@ -3,7 +3,7 @@
 namespace FCatFlasher.Services
 {
 /// <summary>
-/// Обєднує онлайн-логін через API та fallback-логін із локального кешу.
+/// Авторизує користувача через API та кешує дані для локальних звітів.
 /// </summary>
     internal class AuthenticationService(
         ApiService apiService,
@@ -13,7 +13,7 @@ namespace FCatFlasher.Services
         public string? LastSyncError { get; private set; }
 
 /// <summary>
-/// Авторизує користувача онлайн або, якщо API недоступний, через локальну базу.
+/// Авторизує користувача онлайн. Без підтвердження API вхід заборонено.
 /// </summary>
         public CurrentUser? Login(string username, string password)
         {
@@ -29,51 +29,14 @@ namespace FCatFlasher.Services
 
                 localDatabaseService.CacheUser(user, password);
 
-                try
-                {
-                    localDatabaseService.SyncPending(apiService);
-                }
-                catch (Exception ex)
-                {
-                    LastSyncError = "Не вдалося синхронізувати локальні дані: " + ex.Message;
-                }
-
                 return user;
             }
             catch (Exception ex)
             {
                 LastLoginError = $"Не вдалося підключитися до Spring Boot API: {ex.Message}";
 
-                try
-                {
-                    return localDatabaseService.LoginOffline(username, password)
-                        ?? LoginForTesting(username, password);
-                }
-                catch
-                {
-                    return LoginForTesting(username, password);
-                }
-            }
-        }
-
-/// <summary>
-/// Дозволяє тестовий логін без сервера для локальної перевірки застосунку.
-/// </summary>
-        private static CurrentUser? LoginForTesting(string username, string password)
-        {
-            if (!string.Equals(username.Trim(), "admin", StringComparison.OrdinalIgnoreCase) ||
-                (password != "admin" && password != "2"))
-            {
                 return null;
             }
-
-            return new CurrentUser
-            {
-                Id = "00000000-0000-0000-0000-000000000001",
-                Username = "admin",
-                FullName = "Test Admin",
-                IsOffline = true
-            };
         }
     }
 }

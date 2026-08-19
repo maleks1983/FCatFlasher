@@ -47,6 +47,15 @@ namespace FCatFlasher
                 return;
             }
 
+            if (!string.IsNullOrWhiteSpace(_authenticationService.LastSyncError))
+            {
+                MessageBox.Show(
+                    _authenticationService.LastSyncError,
+                    "Помилка синхронізації",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+            }
+
             DialogResult = true;
         }
 

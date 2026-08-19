@@ -22,11 +22,28 @@ namespace FCatFlasher.Services
                 Array.Empty<LocalDataRow>());
         }
 
-        public LocalDataTableSnapshot BuildReflash(DateTime from)
+        public LocalDataTableSnapshot BuildReflash(
+            DateTime from,
+            IReadOnlyList<ReworkSummary>? globalSummaries)
         {
             var rows = new List<LocalDataRow>();
 
-            foreach (ReworkSummary summary in localDatabaseService.LoadPendingReworkSummariesFrom(from))
+            IReadOnlyList<ReworkSummary> localSummaries =
+                localDatabaseService.LoadPendingReworkSummariesFrom(from);
+
+            List<ReworkSummary> summaries = globalSummaries?.ToList() ?? new();
+            var globalKeys = summaries
+                .Select(summary => BuildSummaryKey(summary.OrderId, summary.FirmwareName))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            summaries.AddRange(localSummaries.Where(summary =>
+                !globalKeys.Contains(BuildSummaryKey(summary.OrderId, summary.FirmwareName))));
+
+            summaries = summaries
+                .OrderByDescending(summary => summary.LastCreatedAt)
+                .ToList();
+
+            foreach (ReworkSummary summary in summaries)
             {
                 rows.Add(new LocalDataRow
                 {
@@ -51,7 +68,6 @@ namespace FCatFlasher.Services
         }
 
         public LocalDataTableSnapshot BuildProduction(
-            DateTime from,
             bool productionBoxActive,
             int boxQuantity,
             string firmwareName)
@@ -61,7 +77,7 @@ namespace FCatFlasher.Services
             if (productionBoxActive)
                 AddCurrentProductionBoxRow(rows, boxQuantity, firmwareName);
 
-            foreach (BoxReport report in localDatabaseService.LoadPendingBoxReportsFrom(from))
+            foreach (BoxReport report in localDatabaseService.LoadPendingBoxReports())
             {
                 rows.Add(new LocalDataRow
                 {
@@ -114,6 +130,11 @@ namespace FCatFlasher.Services
                 return digits;
 
             return digits[^4..];
+        }
+
+        private static string BuildSummaryKey(string orderId, string firmwareName)
+        {
+            return $"{orderId.Trim()}\n{firmwareName.Trim()}";
         }
     }
 

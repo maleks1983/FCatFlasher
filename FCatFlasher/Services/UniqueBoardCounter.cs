@@ -17,12 +17,13 @@
             _serials.Clear();
         }
 
-        public bool Register(string serial)
+        public bool Register(string serial, string mcuId)
         {
             if (string.IsNullOrWhiteSpace(serial))
                 return false;
 
-            return _serials.Add(serial.Trim());
+            string key = $"{serial.Trim()}\u001F{mcuId.Trim()}";
+            return _serials.Add(key);
         }
     }
 }

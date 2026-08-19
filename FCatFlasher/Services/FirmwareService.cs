@@ -402,8 +402,13 @@ namespace FCatFlasher.Services
             private const int UnderResetMode = 2;
             private const int SwdPort = 1;
             private const int SoftwareReset = 0;
+            private const int HardwareReset = 1;
             private static readonly object NativeLock = new();
+            private static readonly InitProgressBarCallback InitProgressBar = static () => { };
+            private static readonly LogMessageCallback LogMessage = static (_, _) => { };
+            private static readonly LoadBarCallback LoadBar = static (_, _) => { };
             private static bool _loadPathConfigured;
+            private static bool _callbacksConfigured;
             private string _apiLibDirectory = string.Empty;
             private bool _connected;
 
@@ -421,6 +426,7 @@ namespace FCatFlasher.Services
                         {
                             bool loadPathWasConfigured = ConfigureLoadPath(apiLibDirectory);
 
+                            ConfigureDisplayCallbacks();
                             NativeMethods.SetLoadersPath("./.");
                             NativeMethods.SetVerbosityLevel(0);
 
@@ -475,9 +481,9 @@ namespace FCatFlasher.Services
 
                 int[] modes =
                 {
-                    UnderResetMode,
+                    NormalMode,
                     HotplugMode,
-                    NormalMode
+                    UnderResetMode
                 };
 
                 int[] sharedModes =
@@ -501,9 +507,11 @@ namespace FCatFlasher.Services
                         {
                             DebugConnectParameters parameters = baseParameters;
                             parameters.ConnectionMode = mode;
+                            parameters.ResetMode =
+                                mode == UnderResetMode ? HardwareReset : SoftwareReset;
                             parameters.Shared = shared;
 
-                            int result = NativeMethods.ConnectStLink(parameters);
+                             int result = NativeMethods.ConnectStLink(parameters);
                             output.Append($"{GetConnectModeName(mode)}/shared={shared}:{result}; ");
 
                             if (result == 0)
@@ -622,6 +630,22 @@ namespace FCatFlasher.Services
                 }
             }
 
+            private static void ConfigureDisplayCallbacks()
+            {
+                if (_callbacksConfigured)
+                    return;
+
+                NativeMethods.SetDisplayCallbacks(
+                    new DisplayCallbacks
+                    {
+                        InitProgressBar = InitProgressBar,
+                        LogMessage = LogMessage,
+                        LoadBar = LoadBar
+                    });
+
+                _callbacksConfigured = true;
+            }
+
             private static bool ConfigureLoadPath(string apiLibDirectory)
             {
                 if (_loadPathConfigured)
@@ -732,6 +756,23 @@ namespace FCatFlasher.Services
                 return Encoding.ASCII.GetString(value, actualLength);
             }
 
+            [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+            private delegate void InitProgressBarCallback();
+
+            [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+            private delegate void LogMessageCallback(int messageType, IntPtr message);
+
+            [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+            private delegate void LoadBarCallback(int current, int total);
+
+            [StructLayout(LayoutKind.Sequential)]
+            private struct DisplayCallbacks
+            {
+                public InitProgressBarCallback InitProgressBar;
+                public LogMessageCallback LogMessage;
+                public LoadBarCallback LoadBar;
+            }
+
             private static class NativeMethods
             {
                 private const string DllName = "CubeProgrammer_API.dll";
@@ -739,6 +780,9 @@ namespace FCatFlasher.Services
                 [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
                 [return: MarshalAs(UnmanagedType.Bool)]
                 public static extern bool SetDllDirectory(string lpPathName);
+
+                [DllImport(DllName, EntryPoint = "setDisplayCallbacks", CallingConvention = CallingConvention.Cdecl)]
+                public static extern void SetDisplayCallbacks(DisplayCallbacks callbacks);
 
                 [DllImport(DllName, EntryPoint = "getStLinkList", CallingConvention = CallingConvention.Cdecl)]
                 public static extern int GetStLinkList(out IntPtr stLinkList, int shared);
