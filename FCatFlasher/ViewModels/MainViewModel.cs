@@ -2390,64 +2390,13 @@ namespace FCatFlasher.ViewModels
                 return;
             }
 
-            if (_workMode == WorkMode.Production)
-            {
-                RegisterDeviceLocally(firmwarePath);
+            RegisterDeviceLocally(firmwarePath);
+
+            if (_workMode == WorkMode.Reflash)
+                TryRegisterReworkLocally(firmwarePath);
+
+            if (!_currentUser.IsOffline)
                 ScheduleBackgroundSync();
-                return;
-            }
-
-            if (_currentUser.IsOffline)
-            {
-                RegisterDeviceLocally(firmwarePath);
-
-                if (_workMode == WorkMode.Reflash)
-                    TryRegisterReworkLocally(firmwarePath);
-
-                return;
-            }
-
-            try
-            {
-                _apiService.AddDeviceRegistration(
-                    _currentUser.Id,
-                    GetCurrentBoardSerial(),
-                    GetCurrentMcuId(),
-                    GetCurrentMcuName(),
-                    GetCurrentFirmwareName(firmwarePath),
-                    GetCurrentRegistrationType());
-            }
-            catch (Exception ex)
-            {
-                _localDatabaseService.AddPendingDeviceRegistration(
-                    _currentUser.Id,
-                    GetCurrentOrderIdForLocalRegistration(),
-                    GetCurrentBoardSerial(),
-                    GetCurrentMcuId(),
-                    GetCurrentMcuName(),
-                    GetCurrentLocalFirmwareName(firmwarePath),
-                    GetCurrentRegistrationType());
-
-                Log += "API ERROR: " + ex.Message + "\n";
-                Log += "=== OFFLINE: плату збережено локально для синхронізації ===\n";
-            }
-
-            IncrementTodayCounter(GetCurrentRegistrationType());
-
-            if (_workMode != WorkMode.Reflash)
-                return;
-
-            try
-            {
-                RegisterReworkInDatabase(firmwarePath);
-            }
-            catch (Exception ex)
-            {
-                RegisterReworkLocally(firmwarePath);
-
-                Log += "API ERROR: " + ex.Message + "\n";
-                Log += "=== OFFLINE: переробку збережено локально для синхронізації ===\n";
-            }
         }
 
         private void RegisterTestDeviceInDatabase()
