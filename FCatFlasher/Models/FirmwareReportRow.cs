@@ -9,6 +9,8 @@ namespace FCatFlasher.Models
     {
         public string FirmwareName { get; set; } = string.Empty;
 
+        public string ProductName { get; set; } = string.Empty;
+
         public string OrderId { get; set; } = string.Empty;
 
         public int Quantity { get; set; }

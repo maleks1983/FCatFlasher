@@ -5,20 +5,26 @@ using System.Text.Json;
 namespace FCatFlasher.Services
 {
 /// <summary>
-/// Читає і записує користувацькі налаштування у settings.json.
+/// Читає і записує користувацькі налаштування у профілі поточного користувача.
 /// </summary>
     internal class SettingsService
     {
         private const string FileName = "settings.json";
+        private static readonly string SettingsDirectory = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "FCatFlasher");
+        private static readonly string SettingsPath = Path.Combine(SettingsDirectory, FileName);
 
         public AppSettings Load()
         {
             try
             {
-                if (!File.Exists(FileName))
+                MigrateLegacySettings();
+
+                if (!File.Exists(SettingsPath))
                     return new AppSettings();
 
-                string json = File.ReadAllText(FileName);
+                string json = File.ReadAllText(SettingsPath);
 
                 return JsonSerializer.Deserialize<AppSettings>(json)
                        ?? new AppSettings();
@@ -30,7 +36,7 @@ namespace FCatFlasher.Services
         }
 
 /// <summary>
-/// Зберігає налаштування у JSON-файл поруч із застосунком.
+/// Зберігає налаштування у JSON-файл у локальному профілі користувача.
 /// </summary>
         public void Save(AppSettings settings)
         {
@@ -43,11 +49,21 @@ namespace FCatFlasher.Services
                         WriteIndented = true
                     });
 
-                File.WriteAllText(FileName, json);
+                Directory.CreateDirectory(SettingsDirectory);
+                File.WriteAllText(SettingsPath, json);
             }
             catch
             {
             }
+        }
+
+        private static void MigrateLegacySettings()
+        {
+            if (File.Exists(SettingsPath) || !File.Exists(FileName))
+                return;
+
+            Directory.CreateDirectory(SettingsDirectory);
+            File.Copy(FileName, SettingsPath, overwrite: false);
         }
     }
 }

@@ -63,6 +63,9 @@ project.lock.json
 project.fragment.lock.json
 artifacts/
 
+# FCatFlasher per-user runtime settings
+/FCatFlasher/settings.json
+
 # ASP.NET Scaffolding
 ScaffoldingReadMe.txt
 

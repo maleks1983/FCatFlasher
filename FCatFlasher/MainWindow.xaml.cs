@@ -1,4 +1,4 @@
-﻿using FCatFlasher.Models;
+using FCatFlasher.Models;
 using FCatFlasher.Services;
 using FCatFlasher.ViewModels;
 using System.Windows;
@@ -12,6 +12,36 @@ namespace FCatFlasher
     public partial class MainWindow : Window
     {
         private int _lastSelectedTabIndex = 0;
+        private bool _closePending;
+        private bool _shutdownComplete;
+
+        protected override async void OnClosing(System.ComponentModel.CancelEventArgs e)
+        {
+            base.OnClosing(e);
+            if (_shutdownComplete || e.Cancel)
+                return;
+            e.Cancel = true;
+            if (_closePending)
+                return;
+            _closePending = true;
+            IsEnabled = false;
+            try
+            {
+                if (DataContext is MainViewModel vm)
+                {
+                    await vm.ShutdownAsync();
+                    vm.SerialInputFocusRequested -= FocusVisibleSerialTextBox;
+                }
+                _shutdownComplete = true;
+                _ = Dispatcher.BeginInvoke(new Action(Close));
+            }
+            catch (Exception ex)
+            {
+                _closePending = false;
+                IsEnabled = true;
+                MessageBox.Show(this, ex.Message, "Помилка зупинки");
+            }
+        }
 
         internal MainWindow(
             ApiService apiService,
@@ -23,6 +53,8 @@ namespace FCatFlasher
                 apiService,
                 localDatabaseService,
                 currentUser);
+            ((MainViewModel)DataContext).SerialInputFocusRequested += FocusVisibleSerialTextBox;
+            Loaded += async (_, _) => await ((MainViewModel)DataContext).InitializeAsync();
         }
 
 /// <summary>
@@ -57,7 +89,7 @@ namespace FCatFlasher
 /// <summary>
 /// Фокусує видиме і доступне поле вводу серійного номера.
 /// </summary>
-        private void FocusVisibleSerialTextBox()
+        private void FocusVisibleSerialTextBox(bool selectAll = false)
         {
             Dispatcher.BeginInvoke(() =>
             {
@@ -71,7 +103,10 @@ namespace FCatFlasher
                     return;
 
                 serialTextBox.Focus();
-                serialTextBox.CaretIndex = serialTextBox.Text.Length;
+                if (selectAll)
+                    serialTextBox.SelectAll();
+                else
+                    serialTextBox.CaretIndex = serialTextBox.Text.Length;
             });
         }
 

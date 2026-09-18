@@ -1,4 +1,4 @@
-﻿using System.IO.Ports;
+using System.IO.Ports;
 using System.Text;
 
 namespace FCatFlasher.Services
@@ -11,14 +11,16 @@ namespace FCatFlasher.Services
         private const int OpenSettleDelayMs = 800;
         private SerialPort? _port;
         private readonly StringBuilder _buffer = new();
+        private readonly object _bufferLock = new();
+        private const int MaxPartialLineLength = 65536;
 
-        public bool IsOpen => _port?.IsOpen == true;
+        public virtual bool IsOpen => _port?.IsOpen == true;
         public event Action<string>? DataReceived;
 
 /// <summary>
 /// Відкриває COM-порт і підписується на вхідні дані.
 /// </summary>
-        public void Open(string portName, int baud = 115200)
+        public virtual void Open(string portName, int baud = 115200)
         {
             Close();
 
@@ -47,23 +49,28 @@ namespace FCatFlasher.Services
         {
             try
             {
-                string data = _port!.ReadExisting();
-                _buffer.Append(data);
-
-                while (true)
+                var lines = new List<string>();
+                lock (_bufferLock)
                 {
-                    (int index, int length) = IndexOfLineEnding(_buffer);
-                    if (index < 0)
-                        break;
+                    if (sender is not SerialPort port || port != _port || !port.IsOpen)
+                        return;
+                    _buffer.Append(port.ReadExisting());
 
-                    string line = _buffer.ToString(0, index).Trim();
-                    _buffer.Remove(0, index + length);
-
-                    if (!string.IsNullOrWhiteSpace(line))
+                    while (true)
                     {
-                        DataReceived?.Invoke(line);
+                        (int index, int length) = IndexOfLineEnding(_buffer);
+                        if (index < 0)
+                            break;
+                        string line = _buffer.ToString(0, index).Trim();
+                        _buffer.Remove(0, index + length);
+                        if (!string.IsNullOrWhiteSpace(line))
+                            lines.Add(line);
                     }
+                    if (_buffer.Length > MaxPartialLineLength)
+                        _buffer.Clear();
                 }
+                foreach (string line in lines)
+                    DataReceived?.Invoke(line);
             }
             catch (Exception ex)
             {
@@ -99,43 +106,40 @@ namespace FCatFlasher.Services
 /// <summary>
 /// Надсилає команду стенду з завершенням рядка.
 /// </summary>
-        public void Send(string command)
+        public virtual void Send(string command)
         {
-            if (_port?.IsOpen == true)
-            {
-                _port.WriteLine(command);   // автоматично додає NewLine
-            }
+            SerialPort? port = _port;
+            if (port?.IsOpen != true)
+                throw new InvalidOperationException("COM port is closed.");
+            port.WriteLine(command);
         }
 
 /// <summary>
 /// Закриває COM-порт і очищає внутрішній буфер.
 /// </summary>
-        public void Close()
+        public virtual void Close()
         {
-            if (_port?.IsOpen == true)
+            SerialPort? port = Interlocked.Exchange(ref _port, null);
+            if (port != null)
             {
-                _port.DataReceived -= OnDataReceivedRaw;
-                _port.Close();
-                _port.Dispose();
-                _port = null;
+                port.DataReceived -= OnDataReceivedRaw;
+                port.Dispose();
             }
-            _buffer.Clear();
+            lock (_bufferLock)
+                _buffer.Clear();
         }
 /// <summary>
 /// Очищає програмний і апаратні буфери порту.
 /// </summary>
-        public void ClearBuffers()
+        public virtual void ClearBuffers()
         {
-            if (_port == null || !_port.IsOpen)
-                return;
-
-            try
+            lock (_bufferLock)
             {
+                _buffer.Clear();
+                if (_port == null || !_port.IsOpen)
+                    return;
                 _port.DiscardInBuffer();
                 _port.DiscardOutBuffer();
-            }
-            catch
-            {
             }
         }
     }

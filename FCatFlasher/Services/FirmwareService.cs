@@ -6,7 +6,7 @@ using System.Text;
 namespace FCatFlasher.Services
 {
 /// <summary>
-/// Сервіс низькорівневих операцій STM32CubeProgrammer API: MCU, RDP, flash і reset.
+/// РЎРµСЂРІС–СЃ РЅРёР·СЊРєРѕСЂС–РІРЅРµРІРёС… РѕРїРµСЂР°С†С–Р№ STM32CubeProgrammer API: MCU, RDP, flash С– reset.
 /// </summary>
     internal class FirmwareService
     {
@@ -19,11 +19,12 @@ namespace FCatFlasher.Services
 
         public string LastConnectionError { get; private set; } = string.Empty;
         public string LastMcuName { get; private set; } = string.Empty;
+        public CancellationToken RunCancellationToken { get; set; }
 
         /// <summary>
-        /// Зчитує тип MCU через STM32CubeProgrammer API.
+        /// Р—С‡РёС‚СѓС” С‚РёРї MCU С‡РµСЂРµР· STM32CubeProgrammer API.
         /// </summary>
-        public async Task<string> GetDeviceType()
+        public virtual async Task<string> GetDeviceType()
         {
             string apiResult = await RunApi(
                 "GET DEVICE TYPE",
@@ -33,9 +34,9 @@ namespace FCatFlasher.Services
         }
 
         /// <summary>
-        /// Перевіряє, чи ST-LINK бачить MCU і повертає причину помилки в LastConnectionError.
+        /// РџРµСЂРµРІС–СЂСЏС”, С‡Рё ST-LINK Р±Р°С‡РёС‚СЊ MCU С– РїРѕРІРµСЂС‚Р°С” РїСЂРёС‡РёРЅСѓ РїРѕРјРёР»РєРё РІ LastConnectionError.
         /// </summary>
-        public async Task<bool> CheckConnection()
+        public virtual async Task<bool> CheckConnection()
         {
             return await CheckConnectionCore(
                 "CHECK CONNECTION",
@@ -52,26 +53,32 @@ namespace FCatFlasher.Services
         }
 
         /// <summary>
-        /// Перевіряє присутність плати на стенді через API-підключення ST-LINK.
+        /// РџРµСЂРµРІС–СЂСЏС” РїСЂРёСЃСѓС‚РЅС–СЃС‚СЊ РїР»Р°С‚Рё РЅР° СЃС‚РµРЅРґС– С‡РµСЂРµР· API-РїС–РґРєР»СЋС‡РµРЅРЅСЏ ST-LINK.
         /// </summary>
-        public async Task<bool> CheckBoardPresence()
+        public virtual async Task<bool> CheckBoardPresence()
         {
             return await CheckConnectionCore(
                 "CHECK BOARD PRESENCE",
-                _ => "OK");
+                _ => "OK",
+                retryConnection: false);
         }
 
         private async Task<bool> CheckConnectionCore(
             string title,
-            Func<Stm32CubeProgrammerApi, string> check)
+            Func<Stm32CubeProgrammerApi, string> check,
+            bool retryConnection = true)
         {
             try
             {
-                string apiResult = await RunApi(title, check);
+                string apiResult = await RunApi(title, check, retryConnection);
 
                 bool apiConnected = apiResult == "OK";
                 LastConnectionError = apiConnected ? string.Empty : FormatConnectionCheckError(apiResult);
                 return apiConnected;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
             }
             catch (Exception ex)
             {
@@ -81,9 +88,9 @@ namespace FCatFlasher.Services
         }
 
         /// <summary>
-        /// Знімає RDP-захист перед тестовою прошивкою.
+        /// Р—РЅС–РјР°С” RDP-Р·Р°С…РёСЃС‚ РїРµСЂРµРґ С‚РµСЃС‚РѕРІРѕСЋ РїСЂРѕС€РёРІРєРѕСЋ.
         /// </summary>
-        public async Task<string> UnlockRdp()
+        public virtual async Task<string> UnlockRdp()
         {
             string apiResult = await RunApi(
                 "UNLOCK RDP",
@@ -97,9 +104,9 @@ namespace FCatFlasher.Services
         }
 
         /// <summary>
-        /// В одному API-сеансі визначає MCU і знімає RDP.
+        /// Р’ РѕРґРЅРѕРјСѓ API-СЃРµР°РЅСЃС– РІРёР·РЅР°С‡Р°С” MCU С– Р·РЅС–РјР°С” RDP.
         /// </summary>
-        public async Task<RdpUnlockSessionResult> GetDeviceTypeAndUnlockRdp()
+        public virtual async Task<RdpUnlockSessionResult> GetDeviceTypeAndUnlockRdp()
         {
             string detectedDeviceType = "UNKNOWN";
 
@@ -131,9 +138,9 @@ namespace FCatFlasher.Services
         }
 
         /// <summary>
-        /// Записує HEX-файл у flash-пам'ять і опційно виконує reset.
+        /// Р—Р°РїРёСЃСѓС” HEX-С„Р°Р№Р» Сѓ flash-РїР°Рј'СЏС‚СЊ С– РѕРїС†С–Р№РЅРѕ РІРёРєРѕРЅСѓС” reset.
         /// </summary>
-        public async Task<string> WriteFirmware(string firmwarePath, bool resetAfterWrite)
+        public virtual async Task<string> WriteFirmware(string firmwarePath, bool resetAfterWrite)
         {
             string apiResult = await RunApi(
                 $"WRITE FIRMWARE: {firmwarePath}",
@@ -158,9 +165,9 @@ namespace FCatFlasher.Services
         }
 
         /// <summary>
-        /// Виконує повну виробничу прошивку через API.
+        /// Р’РёРєРѕРЅСѓС” РїРѕРІРЅСѓ РІРёСЂРѕР±РЅРёС‡Сѓ РїСЂРѕС€РёРІРєСѓ С‡РµСЂРµР· API.
         /// </summary>
-        public async Task<string> FlashProductionFirmware(string firmwarePath)
+        public virtual async Task<string> FlashProductionFirmware(string firmwarePath)
         {
             var output = new StringBuilder();
 
@@ -175,9 +182,9 @@ namespace FCatFlasher.Services
         }
 
         /// <summary>
-        /// В одному API-сеансі перевіряє MCU, прошиває файл і повертає тип пристрою.
+        /// Р’ РѕРґРЅРѕРјСѓ API-СЃРµР°РЅСЃС– РїРµСЂРµРІС–СЂСЏС” MCU, РїСЂРѕС€РёРІР°С” С„Р°Р№Р» С– РїРѕРІРµСЂС‚Р°С” С‚РёРї РїСЂРёСЃС‚СЂРѕСЋ.
         /// </summary>
-        public async Task<ProductionFlashSessionResult> FlashProductionFirmwareSession(
+        public virtual async Task<ProductionFlashSessionResult> FlashProductionFirmwareSession(
             string firmwarePath,
             Func<string, string> validateDeviceType)
         {
@@ -288,18 +295,26 @@ namespace FCatFlasher.Services
         private readonly record struct DeviceInfo(string Name);
 
         /// <summary>
-        /// Виконує операцію STM32CubeProgrammer API у фоновому потоці та нормалізує помилки.
+        /// Р’РёРєРѕРЅСѓС” РѕРїРµСЂР°С†С–СЋ STM32CubeProgrammer API Сѓ С„РѕРЅРѕРІРѕРјСѓ РїРѕС‚РѕС†С– С‚Р° РЅРѕСЂРјР°Р»С–Р·СѓС” РїРѕРјРёР»РєРё.
         /// </summary>
-        private async Task<string> RunApi(string title, Func<Stm32CubeProgrammerApi, string> action)
+        private async Task<string> RunApi(string title, Func<Stm32CubeProgrammerApi, string> action,
+            bool retryConnection = true)
         {
-            return await Task.Run(() =>
+            CancellationToken cancellationToken = RunCancellationToken;
+            cancellationToken.ThrowIfCancellationRequested();
+            string output = await Task.Run(() =>
             {
                 try
                 {
-                    using var api = Stm32CubeProgrammerApi.Connect(GetApiLibDirectory());
+                    using var api = Stm32CubeProgrammerApi.Connect(GetApiLibDirectory(), retryConnection);
+                    cancellationToken.ThrowIfCancellationRequested();
                     string result = action(api);
                     SettleAfterApiError(result);
                     return result;
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
                 }
                 catch (Exception ex) when (
                     ex is DllNotFoundException or
@@ -315,7 +330,10 @@ namespace FCatFlasher.Services
                 {
                     return SettleAndReturnApiError($"ERROR: STM32CubeProgrammer API {title} failed: {ex.Message}");
                 }
-            });
+            }, cancellationToken);
+            // Native calls are allowed to finish before cancellation is observed.
+            cancellationToken.ThrowIfCancellationRequested();
+            return output;
         }
 
         private static string SettleAndReturnApiError(string result)
@@ -338,7 +356,7 @@ namespace FCatFlasher.Services
         }
 
         /// <summary>
-        /// Повертає папку бібліотек STM32CubeProgrammer API.
+        /// РџРѕРІРµСЂС‚Р°С” РїР°РїРєСѓ Р±С–Р±Р»С–РѕС‚РµРє STM32CubeProgrammer API.
         /// </summary>
         private string GetApiLibDirectory()
         {
@@ -381,7 +399,7 @@ namespace FCatFlasher.Services
         }
 
         /// <summary>
-        /// Перетворює сире повідомлення API у зрозумілу оператору помилку підключення.
+        /// РџРµСЂРµС‚РІРѕСЂСЋС” СЃРёСЂРµ РїРѕРІС–РґРѕРјР»РµРЅРЅСЏ API Сѓ Р·СЂРѕР·СѓРјС–Р»Сѓ РѕРїРµСЂР°С‚РѕСЂСѓ РїРѕРјРёР»РєСѓ РїС–РґРєР»СЋС‡РµРЅРЅСЏ.
         /// </summary>
         private static string FormatConnectionCheckError(string result)
         {
@@ -416,7 +434,10 @@ namespace FCatFlasher.Services
             {
             }
 
-            public static Stm32CubeProgrammerApi Connect(string apiLibDirectory)
+            private static int _lastConnectionMode = NormalMode;
+            private static int _lastSharedMode;
+
+            public static Stm32CubeProgrammerApi Connect(string apiLibDirectory, bool retryConnection = true)
             {
                 lock (NativeLock)
                 {
@@ -454,7 +475,7 @@ namespace FCatFlasher.Services
 
                             parameters.DbgPort = SwdPort;
 
-                            int connectResult = TryConnectStLink(parameters, out string attempts);
+                            int connectResult = TryConnectStLink(parameters, out string attempts, retryConnection);
 
                             if (connectResult != 0)
                                 throw new InvalidOperationException(
@@ -475,7 +496,8 @@ namespace FCatFlasher.Services
                 }
             }
 
-            private static int TryConnectStLink(DebugConnectParameters baseParameters, out string attempts)
+            private static int TryConnectStLink(DebugConnectParameters baseParameters, out string attempts,
+                bool retryConnection)
             {
                 var output = new StringBuilder();
 
@@ -493,7 +515,15 @@ namespace FCatFlasher.Services
                     1
                 };
 
-                for (int attempt = 1; attempt <= 2; attempt++)
+                // Removal polling uses the last working connection settings once.
+                // An absent board must not trigger the full connection recovery sequence.
+                if (!retryConnection)
+                {
+                    modes = new[] { _lastConnectionMode };
+                    sharedModes = new[] { _lastSharedMode };
+                }
+
+                for (int attempt = 1; attempt <= (retryConnection ? 2 : 1); attempt++)
                 {
                     if (attempt > 1)
                     {
@@ -516,11 +546,11 @@ namespace FCatFlasher.Services
 
                             if (result == 0)
                             {
+                                _lastConnectionMode = mode;
+                                _lastSharedMode = shared;
                                 attempts = output.ToString();
                                 return 0;
                             }
-
-                            NativeMethods.Disconnect();
                         }
                     }
                 }

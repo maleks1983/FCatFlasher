@@ -1,71 +1,40 @@
-<Window
-    x:Class="FCatFlasher.OrderIdWindow"
+<Window x:Class="FCatFlasher.OrderIdWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    Title="Початок перепрошивки"
-    Width="540"
-    Height="320"
-    MinWidth="540"
-    MinHeight="320"
-    ResizeMode="NoResize"
+    Title="Початок перепрошивки" Width="600" Height="480"
+    MinWidth="600" MinHeight="480" ResizeMode="NoResize"
     WindowStartupLocation="CenterOwner">
-
     <Grid Margin="24">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
+            <RowDefinition Height="*" /><RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
-
-        <TextBlock
-            Grid.Row="0"
-            Margin="0,0,0,16"
-            FontWeight="Bold"
-            FontSize="14"
-            Text="Дані для перепрошивки" />
-
+        <TextBlock Grid.Row="0" Margin="0,0,0,16" FontSize="14" FontWeight="Bold"
+                   Text="Дані для перепрошивки" />
         <StackPanel Grid.Row="1" Margin="0,0,0,14">
-            <TextBlock Margin="0,0,0,4" Text="ID замовлення" />
-            <TextBox
-                x:Name="OrderIdTextBox"
-                Height="32"
-                VerticalContentAlignment="Center" />
+            <TextBlock Margin="0,0,0,4" Text="Отримана задача на перепрошивку" />
+            <ComboBox x:Name="OrderComboBox" Height="32" DisplayMemberPath="DisplayName"
+                      SelectionChanged="OrderComboBox_SelectionChanged" VerticalContentAlignment="Center" />
         </StackPanel>
-
-        <StackPanel Grid.Row="2">
-            <TextBlock Margin="0,0,0,4" Text="Назва прошивки (з замовлення)" />
-            <TextBox
-                x:Name="FirmwareNameTextBox"
-                Height="32"
-                VerticalContentAlignment="Center" />
+        <StackPanel Grid.Row="2" Margin="0,0,0,14">
+            <TextBlock Margin="0,0,0,4" Text="Назва продукту" />
+            <TextBox x:Name="ProductNameTextBox" Height="32" IsReadOnly="True"
+                     VerticalContentAlignment="Center" />
         </StackPanel>
-
-        <TextBlock
-            x:Name="ErrorTextBlock"
-            Grid.Row="3"
-            Margin="0,10,0,0"
-            Foreground="DarkRed"
-            TextWrapping="Wrap" />
-
-        <StackPanel
-            Grid.Row="4"
-            Margin="0,16,0,0"
-            HorizontalAlignment="Right"
-            Orientation="Horizontal">
-            <Button
-                Width="100"
-                Height="34"
-                Margin="0,0,10,0"
-                Click="OkButton_Click"
-                Content="OK" />
-
-            <Button
-                Width="100"
-                Height="34"
-                Click="CancelButton_Click"
-                Content="Скасувати" />
+        <StackPanel Grid.Row="3">
+            <TextBlock Margin="0,0,0,4" Text="Прошивка C0" />
+            <TextBox x:Name="C0FirmwareTextBox" Height="32" IsReadOnly="True"
+                     VerticalContentAlignment="Center" />
+            <TextBlock Margin="0,10,0,4" Text="Прошивка G0" />
+            <TextBox x:Name="G0FirmwareTextBox" Height="32" IsReadOnly="True"
+                     VerticalContentAlignment="Center" />
+        </StackPanel>
+        <TextBlock x:Name="ErrorTextBlock" Grid.Row="4" Margin="0,10,0,0"
+                   Foreground="DarkRed" TextWrapping="Wrap" />
+        <StackPanel Grid.Row="5" Margin="0,16,0,0" HorizontalAlignment="Right" Orientation="Horizontal">
+            <Button Width="100" Height="34" Margin="0,0,10,0" Click="OkButton_Click" Content="OK" />
+            <Button Width="100" Height="34" Click="CancelButton_Click" Content="Скасувати" />
         </StackPanel>
     </Grid>
 </Window>

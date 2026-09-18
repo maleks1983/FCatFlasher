@@ -18,6 +18,7 @@ namespace FCatFlasher.Services
         private readonly SemaphoreSlim _commandLock = new(1, 1);
 
         public bool IsPowerOn { get; private set; }
+        public CancellationToken RunCancellationToken { get; set; }
 
         /// <summary>
         /// Надсилає команду стенду з послідовним виконанням та контрольованою затримкою.
@@ -27,10 +28,17 @@ namespace FCatFlasher.Services
             int settleDelayMs = CommandSettleDelayMs,
             bool enforceMinimumDelay = true)
         {
-            await _commandLock.WaitAsync();
+            await SendCommandCore(command, settleDelayMs, enforceMinimumDelay, RunCancellationToken);
+        }
+
+        private async Task SendCommandCore(string command, int settleDelayMs,
+            bool enforceMinimumDelay, CancellationToken cancellationToken)
+        {
+            await _commandLock.WaitAsync(cancellationToken);
 
             try
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 if (!serial.IsOpen)
                     throw new InvalidOperationException($"COM port is closed. Command not sent: {command}");
 
@@ -41,11 +49,23 @@ namespace FCatFlasher.Services
                     ? Math.Max(settleDelayMs, CommandSettleDelayMs)
                     : settleDelayMs;
 
-                await Task.Delay(delayMs);
+                await Task.Delay(delayMs, cancellationToken);
             }
             finally
             {
                 _commandLock.Release();
+            }
+        }
+
+        public async Task StopAsync()
+        {
+            try
+            {
+                await SendCommandCore("PWM_STOP", CommandSettleDelayMs, true, CancellationToken.None);
+            }
+            finally
+            {
+                await SendCommandCore("POWER_OFF", CommandSettleDelayMs, true, CancellationToken.None);
             }
         }
 

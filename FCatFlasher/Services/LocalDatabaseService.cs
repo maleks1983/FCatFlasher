@@ -1,6 +1,7 @@
 ﻿using FCatFlasher.Models;
 using Microsoft.Data.Sqlite;
 using System.IO;
+using System.Security.Cryptography;
 
 namespace FCatFlasher.Services
 {
@@ -10,18 +11,78 @@ namespace FCatFlasher.Services
     internal class LocalDatabaseService
     {
         private readonly string _connectionString;
+        private readonly object _syncLock = new();
+
+        public void SaveFlashedBoard(string userId, string orderId, string serialNumber,
+            string mcuId, string mcuName, string firmwareName, string registrationType,
+            string productName, string firmwarePath,
+            ProductionBoxState? boxState = null, BoxReport? completedBox = null)
+        {
+            string firmwareFileName = GetFileNameFromPath(firmwarePath);
+            string firmwareChecksumSha256 = CalculateFirmwareChecksum(firmwarePath);
+            using var connection = OpenConnection();
+            using var transaction = connection.BeginTransaction();
+            AddPendingDeviceRegistration(connection, transaction, userId, orderId,
+                serialNumber, mcuId, mcuName, firmwareName, firmwareFileName,
+                firmwareChecksumSha256, registrationType);
+            if (registrationType == "REWORK")
+                AddPendingReworkRegistration(connection, transaction, userId, orderId,
+                    serialNumber, productName, firmwareName, firmwarePath,
+                    firmwareChecksumSha256, mcuId, mcuName, "OK");
+            if (boxState != null)
+            {
+                SaveProductionBox(connection, transaction, userId, boxState);
+                if (completedBox != null)
+                    AddPendingBoxReport(connection, transaction, userId, completedBox);
+            }
+            transaction.Commit();
+        }
+
+        public ProductionBoxState? LoadProductionBox(string userId)
+        {
+            using var connection = OpenConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText = "SELECT state_json FROM production_box_state WHERE user_id = $userId";
+            command.Parameters.AddWithValue("$userId", userId);
+            return command.ExecuteScalar() is string json
+                ? System.Text.Json.JsonSerializer.Deserialize<ProductionBoxState>(json)
+                : null;
+        }
+
+        public void CompleteProductionBox(string userId, BoxReport report, ProductionBoxState nextBox)
+        {
+            using var connection = OpenConnection();
+            using var transaction = connection.BeginTransaction();
+            AddPendingBoxReport(connection, transaction, userId, report);
+            SaveProductionBox(connection, transaction, userId, nextBox);
+            transaction.Commit();
+        }
+
+        private static void SaveProductionBox(SqliteConnection connection, SqliteTransaction transaction,
+            string userId, ProductionBoxState state)
+        {
+            using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = """
+                INSERT INTO production_box_state (user_id, state_json) VALUES ($userId, $state)
+                ON CONFLICT(user_id) DO UPDATE SET state_json = excluded.state_json;
+                """;
+            command.Parameters.AddWithValue("$userId", userId);
+            command.Parameters.AddWithValue("$state", System.Text.Json.JsonSerializer.Serialize(state));
+            command.ExecuteNonQuery();
+        }
 
 /// <summary>
 /// Створює connection string до локальної бази у LocalApplicationData.
 /// </summary>
-        public LocalDatabaseService()
+        public LocalDatabaseService(string? databasePath = null)
         {
-            string databasePath = Path.Combine(
+            databasePath ??= Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "FCatFlasher",
                 "offline.db");
 
-            Directory.CreateDirectory(Path.GetDirectoryName(databasePath)!);
+            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(databasePath))!);
 
             _connectionString = new SqliteConnectionStringBuilder
             {
@@ -39,6 +100,11 @@ namespace FCatFlasher.Services
 
             command.CommandText =
                 """
+                CREATE TABLE IF NOT EXISTS production_box_state (
+                    user_id TEXT PRIMARY KEY,
+                    state_json TEXT NOT NULL
+                );
+
                 CREATE TABLE IF NOT EXISTS cached_users (
                     user_id TEXT PRIMARY KEY,
                     username TEXT NOT NULL UNIQUE,
@@ -54,6 +120,9 @@ namespace FCatFlasher.Services
                     mcu_id TEXT NOT NULL DEFAULT '',
                     mcu_name TEXT NOT NULL DEFAULT '',
                     firmware_name TEXT NOT NULL DEFAULT '',
+                    firmware_path TEXT NOT NULL DEFAULT '',
+                    firmware_checksum_sha256 TEXT NOT NULL DEFAULT '',
+                    firmware_checksum_sha256 TEXT NOT NULL DEFAULT '',
                     registration_type TEXT NOT NULL DEFAULT 'PRODUCTION',
                     created_at_ticks INTEGER NOT NULL,
                     is_synced INTEGER NOT NULL DEFAULT 0
@@ -92,11 +161,18 @@ namespace FCatFlasher.Services
             EnsureColumn(connection, "pending_device_registrations", "order_id", "TEXT NOT NULL DEFAULT ''");
             EnsureColumn(connection, "pending_device_registrations", "mcu_id", "TEXT NOT NULL DEFAULT ''");
             EnsureColumn(connection, "pending_device_registrations", "registration_type", "TEXT NOT NULL DEFAULT 'PRODUCTION'");
+            EnsureColumn(connection, "pending_device_registrations", "firmware_path", "TEXT NOT NULL DEFAULT ''");
+            EnsureColumn(connection, "pending_device_registrations", "firmware_checksum_sha256", "TEXT NOT NULL DEFAULT ''");
             EnsureColumn(connection, "pending_box_reports", "serial_numbers", "TEXT NOT NULL DEFAULT ''");
             EnsureColumn(connection, "pending_rework_registrations", "mcu_id", "TEXT NOT NULL DEFAULT ''");
+            EnsureColumn(connection, "pending_rework_registrations", "product_name", "TEXT NOT NULL DEFAULT ''");
+            EnsureColumn(connection, "pending_rework_registrations", "firmware_checksum_sha256", "TEXT NOT NULL DEFAULT ''");
             EnsureColumn(connection, "pending_device_registrations", "is_synced", "INTEGER NOT NULL DEFAULT 0");
             EnsureColumn(connection, "pending_box_reports", "is_synced", "INTEGER NOT NULL DEFAULT 0");
             EnsureColumn(connection, "pending_rework_registrations", "is_synced", "INTEGER NOT NULL DEFAULT 0");
+            EnsureColumn(connection, "pending_device_registrations", "revision", "INTEGER NOT NULL DEFAULT 1");
+            EnsureColumn(connection, "pending_box_reports", "revision", "INTEGER NOT NULL DEFAULT 1");
+            EnsureColumn(connection, "pending_rework_registrations", "revision", "INTEGER NOT NULL DEFAULT 1");
             EnsureUniquePendingReworkSerials(connection);
         }
 
@@ -214,15 +290,47 @@ namespace FCatFlasher.Services
             string firmwareName,
             string registrationType)
         {
+            AddPendingDeviceRegistration(userId, orderId, serialNumber, mcuId, mcuName,
+                firmwareName, string.Empty, string.Empty, registrationType);
+        }
+
+        public void AddPendingDeviceRegistration(
+            string userId,
+            string orderId,
+            string serialNumber,
+            string mcuId,
+            string mcuName,
+            string firmwareName,
+            string firmwarePath,
+            string firmwareChecksumSha256,
+            string registrationType)
+        {
             using var connection = OpenConnection();
+            AddPendingDeviceRegistration(connection, null, userId, orderId, serialNumber, mcuId, mcuName,
+                firmwareName, firmwarePath, firmwareChecksumSha256, registrationType);
+        }
+
+        private static void AddPendingDeviceRegistration(
+            SqliteConnection connection, SqliteTransaction? transaction,
+            string userId,
+            string orderId,
+            string serialNumber,
+            string mcuId,
+            string mcuName,
+            string firmwareName,
+            string firmwarePath,
+            string firmwareChecksumSha256,
+            string registrationType)
+        {
             using var command = connection.CreateCommand();
+            command.Transaction = transaction;
 
             command.CommandText =
                 """
                 INSERT INTO pending_device_registrations
-                    (user_id, order_id, serial_number, mcu_id, mcu_name, firmware_name, registration_type, created_at_ticks)
+                    (user_id, order_id, serial_number, mcu_id, mcu_name, firmware_name, firmware_path, firmware_checksum_sha256, registration_type, created_at_ticks)
                 VALUES
-                    ($userId, $orderId, $serialNumber, $mcuId, $mcuName, $firmwareName, $registrationType, $createdAtTicks)
+                    ($userId, $orderId, $serialNumber, $mcuId, $mcuName, $firmwareName, $firmwarePath, $firmwareChecksumSha256, $registrationType, $createdAtTicks)
                 ON CONFLICT DO UPDATE SET
                     user_id = excluded.user_id,
                     order_id = excluded.order_id,
@@ -230,9 +338,12 @@ namespace FCatFlasher.Services
                     mcu_id = excluded.mcu_id,
                     mcu_name = excluded.mcu_name,
                     firmware_name = excluded.firmware_name,
+                    firmware_path = excluded.firmware_path,
+                    firmware_checksum_sha256 = excluded.firmware_checksum_sha256,
                     registration_type = excluded.registration_type,
                     created_at_ticks = excluded.created_at_ticks,
-                    is_synced = 0;
+                    is_synced = 0,
+                    revision = revision + 1;
                 """;
 
             command.Parameters.AddWithValue("$userId", userId);
@@ -243,6 +354,8 @@ namespace FCatFlasher.Services
             command.Parameters.AddWithValue("$mcuId", normalizedMcuId);
             command.Parameters.AddWithValue("$mcuName", normalizedMcuName);
             command.Parameters.AddWithValue("$firmwareName", firmwareName);
+            command.Parameters.AddWithValue("$firmwarePath", GetFileNameFromPath(firmwarePath));
+            command.Parameters.AddWithValue("$firmwareChecksumSha256", firmwareChecksumSha256);
             command.Parameters.AddWithValue("$registrationType", registrationType);
             command.Parameters.AddWithValue("$createdAtTicks", DateTime.Now.Ticks);
 
@@ -255,7 +368,14 @@ namespace FCatFlasher.Services
         public void AddPendingBoxReport(string userId, BoxReport report)
         {
             using var connection = OpenConnection();
+            AddPendingBoxReport(connection, null, userId, report);
+        }
+
+        private static void AddPendingBoxReport(SqliteConnection connection, SqliteTransaction? transaction,
+            string userId, BoxReport report)
+        {
             using var command = connection.CreateCommand();
+            command.Transaction = transaction;
 
             command.CommandText =
                 """
@@ -284,40 +404,81 @@ namespace FCatFlasher.Services
             string userId,
             string orderId,
             string serialNumber,
+            string productName,
             string firmwareName,
             string firmwarePath,
             string mcuId,
             string mcuName,
             string result)
         {
+            AddPendingReworkRegistration(userId, orderId, serialNumber, productName,
+                firmwareName, firmwarePath, CalculateFirmwareChecksum(firmwarePath),
+                mcuId, mcuName, result);
+        }
+
+        public void AddPendingReworkRegistration(
+            string userId,
+            string orderId,
+            string serialNumber,
+            string productName,
+            string firmwareName,
+            string firmwarePath,
+            string firmwareChecksumSha256,
+            string mcuId,
+            string mcuName,
+            string result)
+        {
             using var connection = OpenConnection();
+            AddPendingReworkRegistration(connection, null, userId, orderId, serialNumber, productName,
+                firmwareName, firmwarePath, firmwareChecksumSha256, mcuId, mcuName, result);
+        }
+
+        private static void AddPendingReworkRegistration(
+            SqliteConnection connection, SqliteTransaction? transaction,
+            string userId,
+            string orderId,
+            string serialNumber,
+            string productName,
+            string firmwareName,
+            string firmwarePath,
+            string firmwareChecksumSha256,
+            string mcuId,
+            string mcuName,
+            string result)
+        {
             using var command = connection.CreateCommand();
+            command.Transaction = transaction;
             string firmwareFileName = GetFileNameFromPath(firmwarePath);
 
             command.CommandText =
                 """
                 INSERT INTO pending_rework_registrations
-                    (user_id, order_id, serial_number, firmware_name, firmware_path, mcu_id, mcu_name, result, created_at_ticks)
+                    (user_id, order_id, serial_number, product_name, firmware_name, firmware_path, firmware_checksum_sha256, mcu_id, mcu_name, result, created_at_ticks)
                 VALUES
-                    ($userId, $orderId, $serialNumber, $firmwareName, $firmwarePath, $mcuId, $mcuName, $result, $createdAtTicks)
+                    ($userId, $orderId, $serialNumber, $productName, $firmwareName, $firmwarePath, $firmwareChecksumSha256, $mcuId, $mcuName, $result, $createdAtTicks)
                 ON CONFLICT DO UPDATE SET
                     user_id = excluded.user_id,
                     order_id = excluded.order_id,
                     serial_number = excluded.serial_number,
+                    product_name = excluded.product_name,
                     firmware_name = excluded.firmware_name,
                     firmware_path = excluded.firmware_path,
+                    firmware_checksum_sha256 = excluded.firmware_checksum_sha256,
                     mcu_id = excluded.mcu_id,
                     mcu_name = excluded.mcu_name,
                     result = excluded.result,
                     created_at_ticks = excluded.created_at_ticks,
-                    is_synced = 0;
+                    is_synced = 0,
+                    revision = revision + 1;
                 """;
 
             command.Parameters.AddWithValue("$userId", userId);
             command.Parameters.AddWithValue("$orderId", orderId);
             command.Parameters.AddWithValue("$serialNumber", serialNumber);
+            command.Parameters.AddWithValue("$productName", productName);
             command.Parameters.AddWithValue("$firmwareName", firmwareName);
             command.Parameters.AddWithValue("$firmwarePath", firmwareFileName);
+            command.Parameters.AddWithValue("$firmwareChecksumSha256", firmwareChecksumSha256);
             string normalizedMcuName = NormalizeMcuName(mcuName);
             string normalizedMcuId = NormalizeMcuName(mcuId);
             command.Parameters.AddWithValue("$mcuId", normalizedMcuId);
@@ -451,14 +612,15 @@ namespace FCatFlasher.Services
                 """
                 SELECT
                     order_id,
-                    firmware_name,
+                    product_name,
+                    MIN(firmware_name),
                     COUNT(*),
                     MIN(created_at_ticks),
                     MAX(created_at_ticks)
                 FROM pending_rework_registrations
                 WHERE created_at_ticks >= $fromTicks
                   AND created_at_ticks < $toTicks
-                GROUP BY order_id, firmware_name
+                GROUP BY order_id, product_name
                 ORDER BY MAX(created_at_ticks) DESC;
                 """;
 
@@ -472,10 +634,11 @@ namespace FCatFlasher.Services
                 rows.Add(new FirmwareReportRow
                 {
                     OrderId = reader.GetString(0),
-                    FirmwareName = reader.GetString(1),
-                    Quantity = reader.GetInt32(2),
-                    FirstCreatedAt = new DateTime(reader.GetInt64(3)),
-                    LastCreatedAt = new DateTime(reader.GetInt64(4))
+                    ProductName = reader.GetString(1),
+                    FirmwareName = reader.GetString(2),
+                    Quantity = reader.GetInt32(3),
+                    FirstCreatedAt = new DateTime(reader.GetInt64(4)),
+                    LastCreatedAt = new DateTime(reader.GetInt64(5))
                 });
             }
 
@@ -504,13 +667,14 @@ namespace FCatFlasher.Services
                 """
                 SELECT
                     order_id,
-                    firmware_name,
+                    product_name,
+                    MIN(firmware_name),
                     COUNT(*),
                     MIN(created_at_ticks),
                     MAX(created_at_ticks)
                 FROM pending_rework_registrations
                 WHERE $fromTicks IS NULL OR created_at_ticks >= $fromTicks
-                GROUP BY order_id, firmware_name
+                GROUP BY order_id, product_name
                 ORDER BY MAX(created_at_ticks) DESC;
                 """;
 
@@ -523,10 +687,11 @@ namespace FCatFlasher.Services
                 summaries.Add(new ReworkSummary
                 {
                     OrderId = reader.GetString(0),
-                    FirmwareName = reader.GetString(1),
-                    Quantity = reader.GetInt32(2),
-                    FirstCreatedAt = new DateTime(reader.GetInt64(3)),
-                    LastCreatedAt = new DateTime(reader.GetInt64(4))
+                    ProductName = reader.GetString(1),
+                    FirmwareName = reader.GetString(2),
+                    Quantity = reader.GetInt32(3),
+                    FirstCreatedAt = new DateTime(reader.GetInt64(4)),
+                    LastCreatedAt = new DateTime(reader.GetInt64(5))
                 });
             }
 
@@ -569,9 +734,9 @@ namespace FCatFlasher.Services
         }
 
 /// <summary>
-/// Видаляє локальні rework-записи для вибраного замовлення і прошивки.
+/// Видаляє локальні rework-записи для вибраного замовлення і продукту.
 /// </summary>
-        public void DeletePendingReworks(string orderId, string firmwareName)
+        public void DeletePendingReworks(string orderId, string productName)
         {
             using var connection = OpenConnection();
             using var command = connection.CreateCommand();
@@ -580,11 +745,11 @@ namespace FCatFlasher.Services
                 """
                 DELETE FROM pending_rework_registrations
                 WHERE order_id = $orderId
-                  AND firmware_name = $firmwareName;
+                  AND product_name = $productName;
                 """;
 
             command.Parameters.AddWithValue("$orderId", orderId);
-            command.Parameters.AddWithValue("$firmwareName", firmwareName);
+            command.Parameters.AddWithValue("$productName", productName);
 
             command.ExecuteNonQuery();
         }
@@ -691,6 +856,12 @@ namespace FCatFlasher.Services
 /// </summary>
         public void SyncPending(ApiService apiService)
         {
+            lock (_syncLock)
+                SyncPendingCore(apiService);
+        }
+
+        private void SyncPendingCore(ApiService apiService)
+        {
             var errors = new List<string>();
 
             SyncPendingDevices(apiService, errors);
@@ -707,14 +878,16 @@ namespace FCatFlasher.Services
         private void SyncPendingDevices(ApiService apiService, List<string> errors)
         {
             var pending = new List<(int Id, string UserId, string SerialNumber, string McuId,
-                string McuName, string FirmwareName, string RegistrationType)>();
+                string McuName, string FirmwareName, string FirmwarePath,
+                string FirmwareChecksumSha256, string RegistrationType, long Revision)>();
 
             using var connection = OpenConnection();
             using var selectCommand = connection.CreateCommand();
 
             selectCommand.CommandText =
                 """
-                SELECT id, user_id, serial_number, mcu_id, mcu_name, firmware_name, registration_type
+                SELECT id, user_id, serial_number, mcu_id, mcu_name, firmware_name,
+                       firmware_path, firmware_checksum_sha256, registration_type, revision
                 FROM pending_device_registrations
                 WHERE is_synced = 0
                 ORDER BY id;
@@ -732,7 +905,10 @@ namespace FCatFlasher.Services
                         reader.GetString(3),
                         reader.GetString(4),
                         reader.GetString(5),
-                        reader.GetString(6)));
+                        reader.GetString(6),
+                        reader.GetString(7),
+                        reader.GetString(8),
+                        reader.GetInt64(9)));
                 }
             }
 
@@ -746,9 +922,11 @@ namespace FCatFlasher.Services
                         item.McuId,
                         item.McuName,
                         item.FirmwareName,
+                        item.FirmwarePath,
+                        item.FirmwareChecksumSha256,
                         item.RegistrationType);
 
-                    MarkSynced("pending_device_registrations", item.Id);
+                    MarkSynced("pending_device_registrations", item.Id, item.Revision);
                 }
                 catch (Exception ex)
                 {
@@ -763,14 +941,14 @@ namespace FCatFlasher.Services
         private void SyncPendingBoxes(ApiService apiService, List<string> errors)
         {
             var pending = new List<(int Id, string UserId, int BoxNumber, int Quantity,
-                string FirmwareName, string SerialNumbers, string FirstSerial, string LastSerial)>();
+                string FirmwareName, string SerialNumbers, string FirstSerial, string LastSerial, long Revision)>();
 
             using var connection = OpenConnection();
             using var selectCommand = connection.CreateCommand();
 
             selectCommand.CommandText =
                 """
-                SELECT id, user_id, box_number, quantity, firmware_name, serial_numbers, first_serial, last_serial
+                SELECT id, user_id, box_number, quantity, firmware_name, serial_numbers, first_serial, last_serial, revision
                 FROM pending_box_reports
                 WHERE is_synced = 0
                 ORDER BY id;
@@ -789,7 +967,8 @@ namespace FCatFlasher.Services
                         reader.GetString(4),
                         reader.GetString(5),
                         reader.GetString(6),
-                        reader.GetString(7)));
+                        reader.GetString(7),
+                        reader.GetInt64(8)));
                 }
             }
 
@@ -809,7 +988,7 @@ namespace FCatFlasher.Services
                             LastSerial = item.LastSerial
                         });
 
-                    MarkSynced("pending_box_reports", item.Id);
+                    MarkSynced("pending_box_reports", item.Id, item.Revision);
                 }
                 catch (Exception ex)
                 {
@@ -824,14 +1003,16 @@ namespace FCatFlasher.Services
         private void SyncPendingReworks(ApiService apiService, List<string> errors)
         {
             var pending = new List<(int Id, string UserId, string OrderId, string SerialNumber,
-                string FirmwareName, string FirmwarePath, string McuId, string McuName, string Result)>();
+                string ProductName, string FirmwareName, string FirmwarePath, string FirmwareChecksumSha256,
+                string McuId, string McuName, string Result, long Revision)>();
 
             using var connection = OpenConnection();
             using var selectCommand = connection.CreateCommand();
 
             selectCommand.CommandText =
                 """
-                SELECT id, user_id, order_id, serial_number, firmware_name, firmware_path, mcu_id, mcu_name, result
+                SELECT id, user_id, order_id, serial_number, product_name, firmware_name, firmware_path,
+                       firmware_checksum_sha256, mcu_id, mcu_name, result, revision
                 FROM pending_rework_registrations
                 WHERE is_synced = 0
                 ORDER BY id;
@@ -851,7 +1032,10 @@ namespace FCatFlasher.Services
                         reader.GetString(5),
                         reader.GetString(6),
                         reader.GetString(7),
-                        reader.GetString(8)));
+                        reader.GetString(8),
+                        reader.GetString(9),
+                        reader.GetString(10),
+                        reader.GetInt64(11)));
                 }
             }
 
@@ -863,13 +1047,15 @@ namespace FCatFlasher.Services
                         item.UserId,
                         item.OrderId,
                         item.SerialNumber,
+                        item.ProductName,
                         item.FirmwareName,
                         item.FirmwarePath,
+                        item.FirmwareChecksumSha256,
                         item.McuId,
                         item.McuName,
                         item.Result);
 
-                    MarkSynced("pending_rework_registrations", item.Id);
+                    MarkSynced("pending_rework_registrations", item.Id, item.Revision);
                 }
                 catch (Exception ex)
                 {
@@ -881,13 +1067,14 @@ namespace FCatFlasher.Services
 /// <summary>
 /// Видаляє запис із локальної таблиці за id.
 /// </summary>
-        private void MarkSynced(string tableName, int id)
+        private void MarkSynced(string tableName, int id, long revision)
         {
             using var connection = OpenConnection();
             using var command = connection.CreateCommand();
 
-            command.CommandText = $"UPDATE {tableName} SET is_synced = 1 WHERE id = $id;";
+            command.CommandText = $"UPDATE {tableName} SET is_synced = 1 WHERE id = $id AND revision = $revision;";
             command.Parameters.AddWithValue("$id", id);
+            command.Parameters.AddWithValue("$revision", revision);
             command.ExecuteNonQuery();
         }
 
@@ -1131,6 +1318,15 @@ namespace FCatFlasher.Services
             return separatorIndex >= 0 && separatorIndex < trimmedPath.Length - 1
                 ? trimmedPath[(separatorIndex + 1)..]
                 : trimmedPath;
+        }
+
+        private static string CalculateFirmwareChecksum(string firmwarePath)
+        {
+            if (string.IsNullOrWhiteSpace(firmwarePath) || !File.Exists(firmwarePath))
+                return string.Empty;
+
+            using FileStream stream = File.OpenRead(firmwarePath);
+            return Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
         }
 
 /// <summary>

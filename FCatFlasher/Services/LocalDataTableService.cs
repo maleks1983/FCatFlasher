@@ -33,11 +33,11 @@ namespace FCatFlasher.Services
 
             List<ReworkSummary> summaries = globalSummaries?.ToList() ?? new();
             var globalKeys = summaries
-                .Select(summary => BuildSummaryKey(summary.OrderId, summary.FirmwareName))
+                .Select(summary => BuildSummaryKey(summary.OrderId, summary.ProductName))
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
             summaries.AddRange(localSummaries.Where(summary =>
-                !globalKeys.Contains(BuildSummaryKey(summary.OrderId, summary.FirmwareName))));
+                !globalKeys.Contains(BuildSummaryKey(summary.OrderId, summary.ProductName))));
 
             summaries = summaries
                 .OrderByDescending(summary => summary.LastCreatedAt)
@@ -48,18 +48,18 @@ namespace FCatFlasher.Services
                 rows.Add(new LocalDataRow
                 {
                     Column1 = GetLastOrderDigits(summary.OrderId),
-                    Column2 = summary.FirmwareName,
+                    Column2 = summary.ProductName,
                     Column3 = summary.Quantity.ToString(CultureInfo.InvariantCulture),
                     Column4 = summary.DateRangeText,
                     KeyOrderId = summary.OrderId,
-                    KeyFirmwareName = summary.FirmwareName,
+                    KeyFirmwareName = summary.ProductName,
                     CanDelete = true
                 });
             }
 
             return new LocalDataTableSnapshot(
                 "Зам.",
-                "Прошивка",
+                "Продукт",
                 "К-сть",
                 "Дати",
                 string.Empty,
@@ -68,6 +68,7 @@ namespace FCatFlasher.Services
         }
 
         public LocalDataTableSnapshot BuildProduction(
+            DateTime from,
             bool productionBoxActive,
             int boxQuantity,
             string firmwareName)
@@ -77,7 +78,7 @@ namespace FCatFlasher.Services
             if (productionBoxActive)
                 AddCurrentProductionBoxRow(rows, boxQuantity, firmwareName);
 
-            foreach (BoxReport report in localDatabaseService.LoadPendingBoxReports())
+            foreach (BoxReport report in localDatabaseService.LoadPendingBoxReportsFrom(from))
             {
                 rows.Add(new LocalDataRow
                 {

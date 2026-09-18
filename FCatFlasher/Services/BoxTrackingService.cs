@@ -15,6 +15,16 @@ namespace FCatFlasher.Services
         public int CurrentBoxCount => _boxSession.CurrentCount;
         public int CurrentBoxNumber => _boxSession.BoxNumber;
 
+        public ProductionBoxState GetState(int boxQuantity, string firmwareName) => new()
+        {
+            BoxNumber = CurrentBoxNumber,
+            BoxQuantity = boxQuantity,
+            FirmwareName = firmwareName,
+            SerialNumbers = _boxSession.GetSerialNumbers()
+        };
+
+        public void Restore(ProductionBoxState state) => _boxSession.Restore(state);
+
 /// <summary>
 /// Завантажує існуючі звіти, щоб продовжити нумерацію коробок.
 /// </summary>
@@ -25,8 +35,8 @@ namespace FCatFlasher.Services
             foreach (BoxReport report in reports)
                 _boxReports.Add(report);
 
-            if (_boxReports.Count > 0)
-                _boxSession.BoxNumber = _boxReports.Max(report => report.BoxNumber) + 1;
+            if (_boxReports.Count > 0 && !HasCurrentBox)
+                _boxSession.BoxNumber = Math.Max(CurrentBoxNumber, _boxReports.Max(report => report.BoxNumber) + 1);
         }
 
 /// <summary>

@@ -1,51 +1,66 @@
-﻿using System.Windows;
+using FCatFlasher.Services;
+using System.Windows;
+using System.Windows.Controls;
 
 namespace FCatFlasher
 {
-/// <summary>
-/// Діалог введення номера rework-замовлення та назви прошивки.
-/// </summary>
     public partial class OrderIdWindow : Window
     {
-        public OrderIdWindow(string orderId = "", string firmwareName = "")
+        internal OrderIdWindow(IReadOnlyList<ReworkOrderInfo> orders, string orderId = "", string firmwareName = "")
         {
             InitializeComponent();
+            OrderComboBox.ItemsSource = orders;
+            OrderComboBox.SelectedItem = orders.FirstOrDefault(order =>
+                    order.RegistrationOrderId == orderId || order.OrderId == orderId)
+                ?? orders.FirstOrDefault();
 
-            OrderIdTextBox.Text = orderId;
-            FirmwareNameTextBox.Text = firmwareName;
-            OrderIdTextBox.SelectAll();
-            OrderIdTextBox.Focus();
+            OrderComboBox.Focus();
         }
 
         public string OrderId { get; private set; } = string.Empty;
-
         public string FirmwareName { get; private set; } = string.Empty;
+        public string ProductName { get; private set; } = string.Empty;
+        public int Quantity { get; private set; }
+        public string C0FirmwareName { get; private set; } = string.Empty;
+        public string G0FirmwareName { get; private set; } = string.Empty;
+        public long? C0FirmwareId { get; private set; }
+        public long? G0FirmwareId { get; private set; }
 
-/// <summary>
-/// Валідує номер замовлення і повертає введені значення.
-/// </summary>
-        private void OkButton_Click(object sender, RoutedEventArgs e)
+        private void OrderComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            string orderId = OrderIdTextBox.Text.Trim();
-
-            if (string.IsNullOrWhiteSpace(orderId))
+            if (OrderComboBox.SelectedItem is not ReworkOrderInfo order)
             {
-                ErrorTextBlock.Text = "Введіть ID замовлення.";
-                OrderIdTextBox.Focus();
+                ProductNameTextBox.Text = string.Empty;
+                C0FirmwareTextBox.Text = string.Empty;
+                G0FirmwareTextBox.Text = string.Empty;
                 return;
             }
 
-            OrderId = orderId;
-            FirmwareName = FirmwareNameTextBox.Text.Trim();
+            ProductNameTextBox.Text = order.ProductName;
+            C0FirmwareTextBox.Text = order.C0FirmwareName;
+            G0FirmwareTextBox.Text = order.G0FirmwareName;
+        }
+
+        private void OkButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (OrderComboBox.SelectedItem is not ReworkOrderInfo order)
+            {
+                ErrorTextBlock.Text = "Оберіть задачу на перепрошивку.";
+                OrderComboBox.Focus();
+                return;
+            }
+
+            OrderId = order.RegistrationOrderId;
+            ProductName = order.ProductName;
+            Quantity = order.Quantity;
+            FirmwareName = order.FirmwareName;
+            C0FirmwareName = order.C0FirmwareName;
+            G0FirmwareName = order.G0FirmwareName;
+            C0FirmwareId = order.C0FirmwareId;
+            G0FirmwareId = order.G0FirmwareId;
             DialogResult = true;
         }
 
-/// <summary>
-/// Закриває діалог без зміни даних.
-/// </summary>
-        private void CancelButton_Click(object sender, RoutedEventArgs e)
-        {
-            DialogResult = false;
-        }
+        private void CancelButton_Click(object sender, RoutedEventArgs e) => DialogResult = false;
     }
 }

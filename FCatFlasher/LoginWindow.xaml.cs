@@ -10,6 +10,14 @@ namespace FCatFlasher
     public partial class LoginWindow : Window
     {
         private readonly AuthenticationService _authenticationService;
+        private bool _loginPending;
+        private bool _closed;
+
+        protected override void OnClosed(EventArgs e)
+        {
+            _closed = true;
+            base.OnClosed(e);
+        }
 
         internal LoginWindow(AuthenticationService authenticationService)
         {
@@ -24,19 +32,33 @@ namespace FCatFlasher
 /// <summary>
 /// Перевіряє введені облікові дані та закриває діалог при успіху.
 /// </summary>
-        private void LoginButton_Click(object sender, RoutedEventArgs e)
+        private async void LoginButton_Click(object sender, RoutedEventArgs e)
         {
+            if (_loginPending)
+                return;
+            _loginPending = true;
+            var button = (System.Windows.Controls.Button)sender;
+            button.IsEnabled = false;
+            string username = UsernameTextBox.Text;
+            string password = PasswordBox.Password;
             try
             {
-                CurrentUser = _authenticationService.Login(
-                    UsernameTextBox.Text,
-                    PasswordBox.Password);
+                CurrentUser = await Task.Run(() => _authenticationService.Login(username, password));
             }
             catch (Exception ex)
             {
-                ErrorTextBlock.Text = "Не вдалося увійти: " + ex.Message;
+                if (!_closed)
+                    ErrorTextBlock.Text = "Не вдалося увійти: " + ex.Message;
                 return;
             }
+            finally
+            {
+                _loginPending = false;
+                button.IsEnabled = true;
+            }
+
+            if (_closed)
+                return;
 
             if (CurrentUser == null)
             {

@@ -11,6 +11,16 @@
         public int CurrentCount { get; private set; }
         public bool HasBoards => CurrentCount > 0;
 
+        public List<string> GetSerialNumbers() => new(_serialNumbers);
+
+        public void Restore(ProductionBoxState state)
+        {
+            BoxNumber = state.BoxNumber;
+            _serialNumbers.Clear();
+            _serialNumbers.AddRange(state.SerialNumbers);
+            CurrentCount = _serialNumbers.Count;
+        }
+
 /// <summary>
 /// Додає серійник прошитої плати до поточної коробки.
 /// </summary>

@@ -1,0 +1,12 @@
+{
+  "SelectedComPort": "",
+  "FirmwarePath": "",
+  "FirmwareName": "",
+  "ReworkFirmwareName": "",
+  "BoxQuantity": 100,
+  "G0FirmwarePath": "",
+  "C0FirmwarePath": "",
+  "ReworkOrderId": "",
+  "TestFirmwareDirectory": "",
+  "ApiBaseUrl": "http://localhost:8080"
+}

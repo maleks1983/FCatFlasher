@@ -39,7 +39,7 @@
             if (_isReceiving)
                 _report += line + "\n";
 
-            if (line != "DIAGNOSTICS REPORT END")
+            if (line != "DIAGNOSTICS REPORT END" || !_isReceiving)
                 return null;
 
             _isReceiving = false;

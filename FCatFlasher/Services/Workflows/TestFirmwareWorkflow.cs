@@ -20,7 +20,7 @@
         private readonly Func<string, bool> _testFirmwareFailed;
         private readonly Func<string, int, bool, Task> _sendStandCommand;
         private readonly Action<string, string> _showTestErrorDialog;
-        private readonly Action<string> _registerDeviceInDatabase;
+        private readonly Func<string, Task> _registerDeviceInDatabase;
         private readonly Func<Task> _waitBoardRemoved;
         private readonly Func<Task> _waitBoardRemovedAfterError;
 
@@ -41,7 +41,7 @@
             Func<string, bool> testFirmwareFailed,
             Func<string, int, bool, Task> sendStandCommand,
             Action<string, string> showTestErrorDialog,
-            Action<string> registerDeviceInDatabase,
+            Func<string, Task> registerDeviceInDatabase,
             Func<Task> waitBoardRemoved,
             Func<Task> waitBoardRemovedAfterError)
         {
@@ -120,7 +120,7 @@
                 _setStatus("Test firmware OK");
                 _setProgress(100);
 
-                _registerDeviceInDatabase("");
+                await _registerDeviceInDatabase("");
 
                 _appendLog("\n=== ТЕСТОВУ ПРОШИВКУ ЗАВЕРШЕНО ===\n");
                 _appendLog(">>> Заберіть плату зі стенда...\n");
@@ -128,6 +128,10 @@
                 _setWaitingRemoveState();
 
                 await _waitBoardRemoved();
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
             }
             catch (Exception ex)
             {
