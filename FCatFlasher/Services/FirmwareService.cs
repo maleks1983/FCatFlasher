@@ -16,6 +16,7 @@ namespace FCatFlasher.Services
         private const int ApiInitialConnectionSettleDelayMs = 100;
         private const int ApiErrorSessionSettleDelayMs = 150;
         private const int ApiRetryConnectionSettleDelayMs = 150;
+        private string? _validatedApiLibDirectory;
 
         public string LastConnectionError { get; private set; } = string.Empty;
         public string LastMcuName { get; private set; } = string.Empty;
@@ -360,12 +361,18 @@ namespace FCatFlasher.Services
         /// </summary>
         private string GetApiLibDirectory()
         {
+            if (_validatedApiLibDirectory != null)
+                return _validatedApiLibDirectory;
+
             string localApiDirectory = Path.Combine(AppContext.BaseDirectory, "api", "lib");
             string localApiDirectoryRoot = Path.GetDirectoryName(localApiDirectory)!;
 
             if (HasCompleteApiRuntime(localApiDirectory) &&
                 HasDeviceDatabase(localApiDirectoryRoot))
-                return localApiDirectory;
+            {
+                _validatedApiLibDirectory = localApiDirectory;
+                return _validatedApiLibDirectory;
+            }
 
             throw new DirectoryNotFoundException(
                 $"Complete STM32CubeProgrammer API runtime was not found: {localApiDirectoryRoot}");
@@ -503,6 +510,7 @@ namespace FCatFlasher.Services
 
                 int[] modes =
                 {
+                    _lastConnectionMode,
                     NormalMode,
                     HotplugMode,
                     UnderResetMode
@@ -510,6 +518,7 @@ namespace FCatFlasher.Services
 
                 int[] sharedModes =
                 {
+                    _lastSharedMode,
                     baseParameters.Shared,
                     0,
                     1
@@ -533,7 +542,7 @@ namespace FCatFlasher.Services
 
                     foreach (int shared in sharedModes.Distinct())
                     {
-                        foreach (int mode in modes)
+                        foreach (int mode in modes.Distinct())
                         {
                             DebugConnectParameters parameters = baseParameters;
                             parameters.ConnectionMode = mode;
