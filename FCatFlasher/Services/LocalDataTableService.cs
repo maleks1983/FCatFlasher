@@ -40,6 +40,9 @@ namespace FCatFlasher.Services
                 !globalKeys.Contains(BuildSummaryKey(summary.OrderId, summary.ProductName))));
 
             summaries = summaries
+                .Where(summary =>
+                    !string.IsNullOrWhiteSpace(summary.OrderId) ||
+                    !string.IsNullOrWhiteSpace(summary.ProductName))
                 .OrderByDescending(summary => summary.LastCreatedAt)
                 .ToList();
 

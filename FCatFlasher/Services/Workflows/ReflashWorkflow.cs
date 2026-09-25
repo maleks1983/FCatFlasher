@@ -6,8 +6,8 @@
     internal sealed class ReflashWorkflow
     {
         private const int PowerOffBeforeStlinkDelayMs = 200;
-        private const int StlinkAfterTestModeSwitchDelayMs = 100;
-        private const int PowerOnSettleDelayMs = 50;
+        private const int StlinkAfterTestModeSwitchDelayMs = 50;
+        private const int PowerOnSettleDelayMs = 0;
 
         private readonly Func<string, int, bool, Task> _sendStandCommand;
         private readonly Func<Task> _startFlashing;
@@ -29,7 +29,7 @@
         public async Task FlashAfterSuccessfulTest()
         {
             await _sendStandCommand("POWER_OFF", PowerOffBeforeStlinkDelayMs, true);
-            await _sendStandCommand("STLINK_ON", StlinkAfterTestModeSwitchDelayMs, true);
+            await _sendStandCommand("STLINK_ON", StlinkAfterTestModeSwitchDelayMs, false);
             await _sendStandCommand("POWER_ON", PowerOnSettleDelayMs, false);
 
             await _startFlashing();

@@ -468,6 +468,9 @@ namespace FCatFlasher.Services
 
                             if (count <= 0 || stLinkList == IntPtr.Zero)
                             {
+                                if (stLinkList != IntPtr.Zero)
+                                    NativeMethods.DeleteInterfaceList();
+
                                 int sharedCount = NativeMethods.GetStLinkList(out stLinkList, shared: 1);
 
                                 if (sharedCount > count)
@@ -477,28 +480,36 @@ namespace FCatFlasher.Services
                             if (count <= 0 || stLinkList == IntPtr.Zero)
                                 throw new InvalidOperationException($"{pathInfo}; getStLinkList returned {count}.");
 
-                            DebugConnectParameters parameters =
-                                Marshal.PtrToStructure<DebugConnectParameters>(stLinkList);
-
-                            parameters.DbgPort = SwdPort;
-
-                            int connectResult = TryConnectStLink(parameters, out string attempts, retryConnection);
-
-                            if (connectResult != 0)
-                                throw new InvalidOperationException(
-                                    $"{pathInfo}; getStLinkList returned {count}; " +
-                                    $"ST-LINK SN: {parameters.GetSerialNumber()}; " +
-                                    $"FW: {parameters.GetFirmwareVersion()}; " +
-                                    $"Target voltage: {parameters.GetTargetVoltage()}; " +
-                                    $"AP: {parameters.AccessPort}/{parameters.AccessPortNumber}; " +
-                                    $"Frequency: {parameters.Frequency}; " +
-                                    $"connect attempts: {attempts}.");
-
-                            return new Stm32CubeProgrammerApi
+                            try
                             {
-                                _apiLibDirectory = apiLibDirectory,
-                                _connected = true
-                            };
+                                DebugConnectParameters parameters =
+                                    Marshal.PtrToStructure<DebugConnectParameters>(stLinkList);
+
+                                parameters.DbgPort = SwdPort;
+
+                                int connectResult = TryConnectStLink(parameters, out string attempts, retryConnection);
+
+                                if (connectResult != 0)
+                                    throw new InvalidOperationException(
+                                        $"{pathInfo}; getStLinkList returned {count}; " +
+                                        $"ST-LINK SN: {parameters.GetSerialNumber()}; " +
+                                        $"FW: {parameters.GetFirmwareVersion()}; " +
+                                        $"Target voltage: {parameters.GetTargetVoltage()}; " +
+                                        $"AP: {parameters.AccessPort}/{parameters.AccessPortNumber}; " +
+                                        $"Frequency: {parameters.Frequency}; " +
+                                        $"connect attempts: {attempts}.");
+
+                                return new Stm32CubeProgrammerApi
+                                {
+                                    _apiLibDirectory = apiLibDirectory,
+                                    _connected = true
+                                };
+                            }
+                            catch
+                            {
+                                NativeMethods.DeleteInterfaceList();
+                                throw;
+                            }
                         });
                 }
             }
@@ -510,17 +521,14 @@ namespace FCatFlasher.Services
 
                 int[] modes =
                 {
-                    _lastConnectionMode,
                     NormalMode,
-                    HotplugMode,
-                    UnderResetMode
+                    HotplugMode
                 };
 
                 int[] sharedModes =
                 {
-                    _lastSharedMode,
-                    baseParameters.Shared,
                     0,
+                    baseParameters.Shared,
                     1
                 };
 
@@ -542,7 +550,7 @@ namespace FCatFlasher.Services
 
                     foreach (int shared in sharedModes.Distinct())
                     {
-                        foreach (int mode in modes.Distinct())
+                        foreach (int mode in modes)
                         {
                             DebugConnectParameters parameters = baseParameters;
                             parameters.ConnectionMode = mode;
@@ -550,7 +558,7 @@ namespace FCatFlasher.Services
                                 mode == UnderResetMode ? HardwareReset : SoftwareReset;
                             parameters.Shared = shared;
 
-                             int result = NativeMethods.ConnectStLink(parameters);
+                            int result = NativeMethods.ConnectStLink(parameters);
                             output.Append($"{GetConnectModeName(mode)}/shared={shared}:{result}; ");
 
                             if (result == 0)
@@ -560,6 +568,10 @@ namespace FCatFlasher.Services
                                 attempts = output.ToString();
                                 return 0;
                             }
+
+                            // A failed native connection can leave a partial CubeProgrammer
+                            // session. Clean it before trying another mode.
+                            NativeMethods.Disconnect();
                         }
                     }
                 }

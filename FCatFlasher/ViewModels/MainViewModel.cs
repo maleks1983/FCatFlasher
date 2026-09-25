@@ -24,6 +24,9 @@ namespace FCatFlasher.ViewModels
         private const int BuzzerOkDelayMs = 100;
         private const int CycleErrorDelayMs = 2000;
         private const int SerialEntryDebounceDelayMs = 250;
+        private const int ReflashUartModeSwitchDelayMs = 400;
+        private const int ReflashBoardDetectionPowerOffDelayMs = 50;
+        private const int ReflashBoardDetectionStlinkDelayMs = 150;
         private const string TestRegistrationType = "TEST";
         private const string ProductionRegistrationType = "PRODUCTION";
         private const string ReworkRegistrationType = "REWORK";
@@ -1115,10 +1118,28 @@ namespace FCatFlasher.ViewModels
 
         private string GetCurrentBoardSerial()
         {
-            if (!string.IsNullOrWhiteSpace(_currentBoardSerial))
-                return _currentBoardSerial;
+            string serial = !string.IsNullOrWhiteSpace(_currentBoardSerial)
+                ? _currentBoardSerial
+                : ScannedSerial.Trim();
 
-            return ScannedSerial.Trim();
+            return _workMode == WorkMode.Reflash
+                ? ResolveReflashSerial(serial, GetCurrentMcuId())
+                : serial;
+        }
+
+        internal static string ResolveReflashSerial(string serial, string mcuId)
+        {
+            const string missingSerialPlaceholder = "D111111";
+            string normalizedSerial = serial.Trim();
+
+            if (!normalizedSerial.Equals(missingSerialPlaceholder, StringComparison.OrdinalIgnoreCase))
+                return normalizedSerial;
+
+            string mcuDigits = new(mcuId.Where(char.IsDigit).ToArray());
+            if (mcuDigits.Length < 7)
+                return missingSerialPlaceholder;
+
+            return "D" + mcuDigits[^7..];
         }
 
         /// <summary>
@@ -1282,7 +1303,11 @@ namespace FCatFlasher.ViewModels
         {
             if (!_stlinkSelectedForRun)
             {
-                await _stand.PowerCycleToStlinkMode();
+                if (_workMode == WorkMode.Reflash)
+                    await PrepareReflashBoardDetectionAttempt();
+                else
+                    await _stand.PowerCycleToStlinkMode();
+
                 _stlinkSelectedForRun = true;
             }
 
@@ -1435,8 +1460,6 @@ namespace FCatFlasher.ViewModels
 
                 Log += result + "\n";
                 Log += "\n=== ТЕСТОВУ ПРОШИВКУ ЗАЛИТО ===\n";
-
-                await Task.Delay(50, RunToken);
 
                 if (_skipReflashDiagnosticsReport)
                 {
@@ -1849,12 +1872,34 @@ namespace FCatFlasher.ViewModels
 
         private async Task CycleBoardPowerWhileWaiting()
         {
+            if (_workMode == WorkMode.Reflash)
+            {
+                await PrepareReflashBoardDetectionAttempt();
+                return;
+            }
+
             await _stand.SendCommand("POWER_OFF", BoardInsertPowerOffDelayMs);
 
             if (_cycleState != CycleState.WaitingBoard)
                 return;
 
             await _stand.SendCommand("POWER_ON", BoardInsertPowerOnDelayMs, enforceMinimumDelay: false);
+        }
+
+        private async Task PrepareReflashBoardDetectionAttempt()
+        {
+            await _stand.SendCommand(
+                "POWER_OFF",
+                ReflashBoardDetectionPowerOffDelayMs,
+                enforceMinimumDelay: false);
+
+            if (_cycleState != CycleState.WaitingBoard)
+                return;
+
+            await _stand.SetStlinkMode(
+                ReflashBoardDetectionStlinkDelayMs,
+                enforceMinimumDelay: false);
+            await _stand.SendCommand("POWER_ON", 0, enforceMinimumDelay: false);
         }
 
         /// <summary>
@@ -1899,10 +1944,11 @@ namespace FCatFlasher.ViewModels
             }
             else if (_workMode == WorkMode.Reflash)
             {
-                await _stand.SetUartModeAndEnsurePowerOn(
-                    powerOffDelayMs: 400,
-                    modeSwitchDelayMs: 100,
-                    powerOnDelayMs: 0);
+                await _stand.SendCommand("POWER_OFF", 0, enforceMinimumDelay: false);
+                await _stand.SetUartMode(
+                    ReflashUartModeSwitchDelayMs,
+                    enforceMinimumDelay: false);
+                await _stand.SendCommand("POWER_ON", 0, enforceMinimumDelay: false);
             }
             else
             {

@@ -122,7 +122,6 @@ namespace FCatFlasher.Services
                     firmware_name TEXT NOT NULL DEFAULT '',
                     firmware_path TEXT NOT NULL DEFAULT '',
                     firmware_checksum_sha256 TEXT NOT NULL DEFAULT '',
-                    firmware_checksum_sha256 TEXT NOT NULL DEFAULT '',
                     registration_type TEXT NOT NULL DEFAULT 'PRODUCTION',
                     created_at_ticks INTEGER NOT NULL,
                     is_synced INTEGER NOT NULL DEFAULT 0
@@ -1156,13 +1155,25 @@ namespace FCatFlasher.Services
 /// </summary>
         private static void EnsureUniquePendingReworkSerials(SqliteConnection connection)
         {
-            if (IndexExists(connection, "ux_pending_rework_serial_regular")
-                && IndexExists(connection, "ux_pending_rework_mcu_without_serial")
-                && IndexExists(connection, "ux_pending_device_rework_serial_regular")
-                && IndexExists(connection, "ux_pending_device_mcu_without_serial"))
+            bool regularIndexesReady =
+                IndexExists(connection, "ux_pending_rework_serial_regular")
+                && IndexExists(connection, "ux_pending_device_rework_serial_regular");
+
+            // D111111 now creates a separate row for every board. Removing the old
+            // MCU-based indexes is enough for an already migrated database; do not
+            // rerun the expensive duplicate-cleanup queries on every application start.
+            using (var obsoleteIndexCommand = connection.CreateCommand())
             {
-                return;
+                obsoleteIndexCommand.CommandText =
+                    """
+                    DROP INDEX IF EXISTS ux_pending_rework_mcu_without_serial;
+                    DROP INDEX IF EXISTS ux_pending_device_rework_mcu_without_serial;
+                    """;
+                obsoleteIndexCommand.ExecuteNonQuery();
             }
+
+            if (regularIndexesReady)
+                return;
 
             using var command = connection.CreateCommand();
             command.CommandText =
@@ -1242,30 +1253,10 @@ namespace FCatFlasher.Services
                         )
                   );
 
-                DELETE FROM pending_rework_registrations
-                WHERE upper(serial_number) = 'D111111'
-                  AND mcu_id <> ''
-                  AND id NOT IN (
-                    SELECT MAX(id)
-                    FROM pending_rework_registrations
-                    WHERE upper(serial_number) = 'D111111'
-                      AND mcu_id <> ''
-                    GROUP BY lower(mcu_id)
-                  );
-
-                DELETE FROM pending_device_registrations
-                WHERE upper(serial_number) = 'D111111'
-                  AND mcu_id <> ''
-                  AND id NOT IN (
-                    SELECT MAX(id)
-                    FROM pending_device_registrations
-                    WHERE upper(serial_number) = 'D111111'
-                      AND mcu_id <> ''
-                    GROUP BY lower(mcu_id)
-                  );
-
                 DROP INDEX IF EXISTS ux_pending_rework_registrations_serial_number;
                 DROP INDEX IF EXISTS ux_pending_device_rework_serial_number;
+                DROP INDEX IF EXISTS ux_pending_rework_mcu_without_serial;
+                DROP INDEX IF EXISTS ux_pending_device_rework_mcu_without_serial;
 
                 CREATE UNIQUE INDEX IF NOT EXISTS ux_pending_rework_serial_regular
                 ON pending_rework_registrations (serial_number COLLATE NOCASE)
@@ -1276,17 +1267,6 @@ namespace FCatFlasher.Services
                 WHERE registration_type = 'REWORK'
                   AND upper(serial_number) <> 'D111111';
 
-                CREATE UNIQUE INDEX IF NOT EXISTS ux_pending_rework_mcu_without_serial
-                ON pending_rework_registrations (mcu_id COLLATE NOCASE)
-                WHERE upper(serial_number) = 'D111111'
-                  AND mcu_id <> '';
-
-                DROP INDEX IF EXISTS ux_pending_device_rework_mcu_without_serial;
-
-                CREATE UNIQUE INDEX IF NOT EXISTS ux_pending_device_mcu_without_serial
-                ON pending_device_registrations (mcu_id COLLATE NOCASE)
-                WHERE upper(serial_number) = 'D111111'
-                  AND mcu_id <> '';
                 """;
 
             command.ExecuteNonQuery();

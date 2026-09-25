@@ -27,6 +27,9 @@ internal static class Program
             {
                 await Test("diagnostics framing and duplicate END", TestDiagnostics);
                 await Test("firmware filename compatibility in both directions", TestCompatibility);
+                await Test("missing rework serial is counted for every board", TestMissingReworkSerialCounter);
+                await Test("missing rework serial creates separate database rows", TestMissingReworkSerialDatabaseRows);
+                await Test("missing rework serial is derived from MCU serial", TestReworkSerialFromMcu);
                 await Test("revision migration preserves pending data", TestMigration);
                 await Test("device update during HTTP remains pending", () => TestRevision(false));
                 await Test("rework update during HTTP remains pending", () => TestRevision(true));
@@ -108,6 +111,51 @@ internal static class Program
         Check(FirmwareCompatibility.Validate("C0", g0).Contains("ERROR"), "G0 file accepted for C0");
         Check(FirmwareCompatibility.Validate("UNKNOWN", g0).Contains("ERROR"), "Unknown MCU accepted");
         Check(FirmwareCompatibility.Validate("G0", g0 + ".missing").Contains("ERROR"), "Missing file accepted");
+        return Task.CompletedTask;
+    }
+
+    private static Task TestMissingReworkSerialCounter()
+    {
+        var counter = new UniqueBoardCounter();
+
+        Check(counter.Register("D111111", "MCU-1"), "First missing serial was not counted");
+        Check(counter.Register("d111111", "MCU-1"), "Repeated missing serial was deduplicated");
+        Check(counter.Count == 2, "Missing serial count is incorrect");
+
+        Check(counter.Register("D123456", "MCU-2"), "Regular serial was not counted");
+        Check(!counter.Register("D123456", "MCU-2"), "Regular serial duplicate was counted");
+        Check(counter.Count == 3, "Regular serial uniqueness changed");
+        return Task.CompletedTask;
+    }
+
+    private static Task TestMissingReworkSerialDatabaseRows()
+    {
+        var (db, path) = Database();
+
+        for (int index = 0; index < 2; index++)
+        {
+            db.SaveFlashedBoard(
+                "1", "order", "D111111", "MCU-1", "STM32G0", "firmware", "REWORK",
+                "product", string.Empty);
+        }
+
+        Check(Sql(path, "SELECT COUNT(*) FROM pending_device_registrations WHERE serial_number = 'D111111'") == 2,
+            "Missing serial device registration was overwritten");
+        Check(Sql(path, "SELECT COUNT(*) FROM pending_rework_registrations WHERE serial_number = 'D111111'") == 2,
+            "Missing serial rework registration was overwritten");
+        return Task.CompletedTask;
+    }
+
+    private static Task TestReworkSerialFromMcu()
+    {
+        Check(MainViewModel.ResolveReflashSerial("D111111", "59001775482556") == "D5482556",
+            "MCU ID suffix was not used");
+        Check(MainViewModel.ResolveReflashSerial("d111111", "MCU: 1234567") == "D1234567",
+            "Lowercase placeholder or formatted MCU ID was not handled");
+        Check(MainViewModel.ResolveReflashSerial("D111111", "12345") == "D111111",
+            "Placeholder changed without six MCU digits");
+        Check(MainViewModel.ResolveReflashSerial("D765432", "59001775482556") == "D765432",
+            "A real serial number was replaced");
         return Task.CompletedTask;
     }
 

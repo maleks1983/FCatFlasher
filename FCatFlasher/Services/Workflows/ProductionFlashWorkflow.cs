@@ -5,8 +5,7 @@
 /// </summary>
     internal sealed class ProductionFlashWorkflow
     {
-        private const int PowerOffBeforeStlinkDelayMs = 100;
-        private const int SerialAfterPowerOffDelayMs = 50;
+        private const int PowerOffBeforeStlinkDelayMs = 150;
         private const int StlinkAfterTestModeSwitchDelayMs = 50;
         private const int PowerOnSettleDelayMs = 0;
 
@@ -33,7 +32,6 @@
         public async Task FlashAfterSuccessfulTest()
         {
             await _sendStandCommand("POWER_OFF", PowerOffBeforeStlinkDelayMs, true);
-            await Task.Delay(SerialAfterPowerOffDelayMs);
             await _setStlinkModeAndEnsurePowerOn(
                 StlinkAfterTestModeSwitchDelayMs,
                 PowerOnSettleDelayMs,

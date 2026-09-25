@@ -72,9 +72,11 @@ namespace FCatFlasher.Services
         /// <summary>
         /// Перемикає стенд у UART режим.
         /// </summary>
-        public async Task SetUartMode(int settleDelayMs = UartModeSwitchDelayMs)
+        public async Task SetUartMode(
+            int settleDelayMs = UartModeSwitchDelayMs,
+            bool enforceMinimumDelay = true)
         {
-            await SendCommand("UART_ON", settleDelayMs);
+            await SendCommand("UART_ON", settleDelayMs, enforceMinimumDelay);
         }
 
         /// <summary>
@@ -93,10 +95,11 @@ namespace FCatFlasher.Services
         public async Task SetUartModeAndEnsurePowerOn(
             int powerOffDelayMs = UartPowerOffDelayMs,
             int modeSwitchDelayMs = UartModeSwitchDelayMs,
-            int powerOnDelayMs = PowerOnSettleDelayMs)
+            int powerOnDelayMs = PowerOnSettleDelayMs,
+            bool enforceModeSwitchMinimumDelay = true)
         {
             await SendCommand("POWER_OFF", powerOffDelayMs);
-            await SetUartMode(modeSwitchDelayMs);
+            await SetUartMode(modeSwitchDelayMs, enforceModeSwitchMinimumDelay);
             await SendCommand("POWER_ON", powerOnDelayMs, enforceMinimumDelay: false);
         }
 
