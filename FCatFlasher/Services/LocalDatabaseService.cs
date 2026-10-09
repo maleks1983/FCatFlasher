@@ -516,7 +516,8 @@ namespace FCatFlasher.Services
 
             command.CommandText =
                 """
-                SELECT box_number, quantity, firmware_name, serial_numbers, first_serial, last_serial, created_at_ticks
+                SELECT id, box_number, quantity, firmware_name, serial_numbers, first_serial, last_serial,
+                       created_at_ticks, is_synced
                 FROM pending_box_reports
                 WHERE $fromTicks IS NULL OR created_at_ticks >= $fromTicks
                 ORDER BY id DESC;
@@ -530,17 +531,48 @@ namespace FCatFlasher.Services
             {
                 reports.Add(new BoxReport
                 {
-                    BoxNumber = reader.GetInt32(0),
-                    Quantity = reader.GetInt32(1),
-                    FirmwareName = reader.GetString(2),
-                    SerialNumbersText = reader.GetString(3),
-                    FirstSerial = reader.GetString(4),
-                    LastSerial = reader.GetString(5),
-                    CreatedAt = new DateTime(reader.GetInt64(6))
+                    LocalId = reader.GetInt32(0),
+                    BoxNumber = reader.GetInt32(1),
+                    Quantity = reader.GetInt32(2),
+                    FirmwareName = reader.GetString(3),
+                    SerialNumbersText = reader.GetString(4),
+                    FirstSerial = reader.GetString(5),
+                    LastSerial = reader.GetString(6),
+                    CreatedAt = new DateTime(reader.GetInt64(7)),
+                    IsSynced = reader.GetInt32(8) != 0
                 });
             }
 
             return reports;
+        }
+
+        /// <summary>
+        /// Оновлює склад завершеної коробки, яка ще не була синхронізована.
+        /// </summary>
+        public bool UpdatePendingBoxReport(int localId, BoxReport report)
+        {
+            if (localId <= 0)
+                return false;
+
+            using var connection = OpenConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText =
+                """
+                UPDATE pending_box_reports
+                SET quantity = $quantity,
+                    serial_numbers = $serialNumbers,
+                    first_serial = $firstSerial,
+                    last_serial = $lastSerial,
+                    is_synced = 0,
+                    revision = revision + 1
+                WHERE id = $id AND is_synced = 0;
+                """;
+            command.Parameters.AddWithValue("$quantity", report.Quantity);
+            command.Parameters.AddWithValue("$serialNumbers", report.SerialNumbersText);
+            command.Parameters.AddWithValue("$firstSerial", report.FirstSerial);
+            command.Parameters.AddWithValue("$lastSerial", report.LastSerial);
+            command.Parameters.AddWithValue("$id", localId);
+            return command.ExecuteNonQuery() == 1;
         }
 
 /// <summary>

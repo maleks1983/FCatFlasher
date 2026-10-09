@@ -88,7 +88,9 @@ namespace FCatFlasher.Services
                     Column1 = report.BoxNumber.ToString(CultureInfo.InvariantCulture),
                     Column2 = FormatSerialRangesForDisplay(report.SerialRangeText),
                     Column3 = report.Quantity.ToString(CultureInfo.InvariantCulture),
-                    Column4 = report.FirmwareName
+                    Column4 = report.FirmwareName,
+                    KeyBoxReportId = report.LocalId,
+                    CanEditBox = report.LocalId > 0 && !report.IsSynced
                 });
             }
 

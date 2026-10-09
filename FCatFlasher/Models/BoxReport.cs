@@ -5,6 +5,10 @@
 /// </summary>
     public class BoxReport
     {
+        public int LocalId { get; set; }
+
+        public bool IsSynced { get; set; }
+
         public int BoxNumber { get; set; }
 
         public int Quantity { get; set; }

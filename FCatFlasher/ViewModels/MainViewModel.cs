@@ -64,6 +64,7 @@ namespace FCatFlasher.ViewModels
         private bool _startRunTimerOnBoardDetected;
         private bool _startingFlashAfterSerial;
         private bool _retryingProductionBoard;
+        private PendingBoxReplacement? _pendingBoxReplacement;
         private readonly object _backgroundSyncLock = new();
         private bool _backgroundSyncRunning;
         private bool _backgroundSyncRequested;
@@ -109,12 +110,14 @@ namespace FCatFlasher.ViewModels
 
         public RelayCommand TestFirmwareCommand { get; }
         public RelayCommand TestOnlyCommand { get; }
+        public RelayCommand TestReplacementCommand { get; }
         public RelayCommand FlashCommand { get; }
         public RelayCommand SingleFlashCommand { get; }
         public RelayCommand ReflashCommand { get; }
         public RelayCommand ReflashTestFirmwareCommand { get; }
 
         public ICommand DeleteLocalDataRowCommand { get; }
+        public ICommand AddBoxBoardCommand { get; }
         public ICommand RefreshComPortsCommand { get; }
         public ICommand BrowseFirmwareCommand { get; }
         public ICommand BrowseG0FirmwareCommand { get; }
@@ -355,6 +358,7 @@ namespace FCatFlasher.ViewModels
 
                 TestFirmwareCommand.RaiseCanExecuteChanged();
                 TestOnlyCommand.RaiseCanExecuteChanged();
+                TestReplacementCommand.RaiseCanExecuteChanged();
                 FlashCommand.RaiseCanExecuteChanged();
                 ReflashCommand.RaiseCanExecuteChanged();
                 ReflashTestFirmwareCommand.RaiseCanExecuteChanged();
@@ -568,6 +572,10 @@ namespace FCatFlasher.ViewModels
                 () => !IsBusy
             );
 
+            TestReplacementCommand = new RelayCommand(
+                async () => await StartBoxReplacement(),
+                () => !IsBusy);
+
             FlashCommand = new RelayCommand(
                 async () =>
                 {
@@ -664,6 +672,7 @@ namespace FCatFlasher.ViewModels
             );
 
             DeleteLocalDataRowCommand = new RelayCommand<LocalDataRow>(DeleteLocalDataRow);
+            AddBoxBoardCommand = new RelayCommand<LocalDataRow>(row => EditCompletedBox(row, replace: false));
             RefreshComPortsCommand = new RelayCommand(RefreshComPorts);
             BrowseFirmwareCommand = new RelayCommand(BrowseFirmware);
             BrowseG0FirmwareCommand = new RelayCommand(BrowseG0Firmware);
@@ -1120,7 +1129,7 @@ namespace FCatFlasher.ViewModels
         {
             string serial = !string.IsNullOrWhiteSpace(_currentBoardSerial)
                 ? _currentBoardSerial
-                : ScannedSerial.Trim();
+                : _pendingBoxReplacement?.SerialNumber ?? ScannedSerial.Trim();
 
             return _workMode == WorkMode.Reflash
                 ? ResolveReflashSerial(serial, GetCurrentMcuId())
@@ -2593,6 +2602,107 @@ namespace FCatFlasher.ViewModels
             }
         }
 
+        private void EditCompletedBox(LocalDataRow? row, bool replace)
+        {
+            if (row == null || !row.CanEditBox || row.KeyBoxReportId <= 0)
+                return;
+
+            BoxReport? report = _localDatabaseService.LoadPendingBoxReports()
+                .FirstOrDefault(item => item.LocalId == row.KeyBoxReportId && !item.IsSynced);
+            if (report == null)
+            {
+                MessageBox.Show(
+                    "Коробку вже синхронізовано або її локальні дані змінилися. Оновіть таблицю.",
+                    "Редагування коробки", MessageBoxButton.OK, MessageBoxImage.Information);
+                LoadLocalDataForCurrentTab();
+                return;
+            }
+
+            var window = new global::FCatFlasher.EditBoxBoardWindow(report.BoxNumber, replace)
+            {
+                Owner = Application.Current.MainWindow
+            };
+            if (window.ShowDialog() != true)
+                return;
+
+            bool valid = replace
+                ? BoxReportEditor.TryReplace(report, window.OldSerial, window.NewSerial, out BoxReport updated, out string error)
+                : BoxReportEditor.TryAdd(report, window.NewSerial, out updated, out error);
+
+            if (!valid)
+            {
+                MessageBox.Show(error, "Редагування коробки", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            try
+            {
+                if (!_localDatabaseService.UpdatePendingBoxReport(report.LocalId, updated))
+                    throw new InvalidOperationException("Коробку вже синхронізовано або змінено.");
+
+                _boxTracking.LoadReports(_localDatabaseService.LoadPendingBoxReports());
+                LoadLocalDataForCurrentTab();
+                string action = replace ? $"{window.OldSerial} замінено на {window.NewSerial}" : $"додано {window.NewSerial}";
+                Log += $"=== КОРОБКА № {report.BoxNumber}: {action} ===\n";
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(ex.Message, "Не вдалося оновити коробку",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private async Task StartBoxReplacement()
+        {
+            if (_currentUser.IsOffline)
+            {
+                MessageBox.Show("Для запису нового MCU ID потрібне з’єднання із сервером.",
+                    "Заміна плати", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            var window = new global::FCatFlasher.EditBoxBoardWindow(0, replace: true)
+            {
+                Owner = Application.Current.MainWindow
+            };
+            window.SetMcuReplacementMode();
+            if (window.ShowDialog() != true)
+                return;
+
+            List<BoxReport> localReports = _localDatabaseService.LoadPendingBoxReports().ToList();
+            BoxReport? source = localReports.FirstOrDefault(report => BoxReportEditor.Contains(report, window.OldSerial));
+            if (source == null)
+            {
+                source = _apiService.LoadBoxReports()
+                    .FirstOrDefault(report => BoxReportEditor.Contains(report, window.OldSerial));
+            }
+
+            if (source == null)
+            {
+                MessageBox.Show($"Плату {window.OldSerial} не знайдено в завершених коробках.",
+                    "Заміна плати", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            if (!EnsureConnected())
+                return;
+
+            _pendingBoxReplacement = new PendingBoxReplacement(window.OldSerial, source.BoxNumber);
+            _workMode = WorkMode.TestFirmware;
+            _stlinkSelectedForRun = false;
+            _startRunTimerOnBoardDetected = true;
+            ResetRunTimer();
+            Log += $"=== ЗАМІНА ПЛАТИ {window.OldSerial}, коробка № {source.BoxNumber}: очікується новий MCU ===\n";
+
+            try
+            {
+                await StartFullCycle();
+            }
+            finally
+            {
+                _pendingBoxReplacement = null;
+            }
+        }
 
         /// <summary>
         /// Реєструє плату через API або локально, якщо API недоступний.
@@ -2667,11 +2777,23 @@ namespace FCatFlasher.ViewModels
             catch (Exception ex)
             {
                 Log += "API ERROR: " + ex.Message + "\n";
+                if (_pendingBoxReplacement != null)
+                {
+                    throw new RegistrationException(
+                        $"Новий MCU ID для плати {_pendingBoxReplacement.SerialNumber} не записано.", ex);
+                }
                 Log += "=== OFFLINE: тестову плату не збережено в локальну базу ===\n";
             }
 
             IncrementTodayCounter(TestRegistrationType);
+            if (_pendingBoxReplacement != null)
+            {
+                Log += $"=== ПЛАТА {_pendingBoxReplacement.SerialNumber}: записано новий MCU ID {mcuId}, коробка № {_pendingBoxReplacement.BoxNumber} ===\n";
+                _pendingBoxReplacement = null;
+            }
         }
+
+        private sealed record PendingBoxReplacement(string SerialNumber, int BoxNumber);
 
         private string GetCurrentOrderIdForLocalRegistration()
         {

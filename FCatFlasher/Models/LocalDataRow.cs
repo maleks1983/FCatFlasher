@@ -20,5 +20,9 @@
         public string KeyFirmwareName { get; set; } = string.Empty;
 
         public bool CanDelete { get; set; }
+
+        public int KeyBoxReportId { get; set; }
+
+        public bool CanEditBox { get; set; }
     }
 }

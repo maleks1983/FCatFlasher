@@ -36,6 +36,7 @@ internal static class Program
                 await Test("concurrent sync sends a pending row once", TestConcurrentSync);
                 await Test("rework save is atomic", TestAtomicSave);
                 await Test("production box survives restart and completes atomically", TestProductionBoxRecovery);
+                await Test("completed box boards can be replaced and appended", TestCompletedBoxEditing);
                 await Test("cancelled native operation is not started", TestCancelledFirmware);
                 await Test("initial API loading leaves the dispatcher responsive", TestAsyncInitialization);
                 await Test("idle window closes after asynchronous shutdown", TestWindowClose);
@@ -208,6 +209,44 @@ internal static class Program
         db.CompleteProductionBox("1", partial, tracker.GetState(2, "firmware"));
         Check(db.LoadProductionBox("1")!.BoxNumber == 3 && db.LoadPendingBoxReports().Count == 2,
             "Manual completion was not persisted");
+        return Task.CompletedTask;
+    }
+
+    private static Task TestCompletedBoxEditing()
+    {
+        var (db, path) = Database();
+        db.AddPendingBoxReport("1", new BoxReport
+        {
+            BoxNumber = 99,
+            Quantity = 3,
+            FirmwareName = "firmware.hex",
+            SerialNumbersText = "D0001-D0003",
+            FirstSerial = "D0001",
+            LastSerial = "D0003"
+        });
+
+        BoxReport source = db.LoadPendingBoxReports().Single();
+        Check(source.LocalId > 0 && !source.IsSynced, "Editable local box identity was not loaded");
+        Check(BoxReportEditor.TryReplace(source, "D0002", "D0100", out BoxReport replaced, out string replaceError),
+            "Replacement failed: " + replaceError);
+        Check(replaced.Quantity == 3 && replaced.SerialNumbersText == "D0001, D0003, D0100",
+            "Replacement did not rebuild the box range");
+        Check(db.UpdatePendingBoxReport(source.LocalId, replaced), "Replacement was not saved");
+
+        source = db.LoadPendingBoxReports().Single();
+        Check(BoxReportEditor.TryAdd(source, "D0101", out BoxReport appended, out string addError),
+            "Append failed: " + addError);
+        Check(appended.Quantity == 4 && appended.SerialNumbersText == "D0001, D0003, D0100-D0101",
+            "Append did not update quantity and ranges");
+        Check(db.UpdatePendingBoxReport(source.LocalId, appended), "Append was not saved");
+        Check(!BoxReportEditor.TryAdd(appended, "d0101", out _, out _), "Duplicate serial was accepted");
+        Check(!BoxReportEditor.TryReplace(appended, "D9999", "D0200", out _, out _),
+            "Missing serial was replaced");
+
+        Sql(path, "UPDATE pending_box_reports SET is_synced = 1");
+        BoxReport synced = db.LoadPendingBoxReports().Single();
+        Check(synced.IsSynced && !db.UpdatePendingBoxReport(synced.LocalId, appended),
+            "Synchronized box remained editable");
         return Task.CompletedTask;
     }
 

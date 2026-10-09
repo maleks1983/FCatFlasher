@@ -67,6 +67,12 @@
                                 Command="{Binding TestOnlyCommand}"
                                 Content="Тестування" />
                             <Button
+                                Width="145"
+                                Height="35"
+                                Margin="0,0,10,0"
+                                Command="{Binding TestReplacementCommand}"
+                                Content="Заміна плати" />
+                            <Button
                                 Width="100"
                                 Height="35"
                                 Command="{Binding StopCommand}"
@@ -412,7 +418,7 @@
                                 <ColumnDefinition Width="230" />
                                 <ColumnDefinition Width="55" />
                                 <ColumnDefinition Width="180" />
-                                <ColumnDefinition Width="45" />
+                                <ColumnDefinition Width="120" />
                             </Grid.ColumnDefinitions>
 
                             <TextBlock
@@ -493,7 +499,7 @@
                                                 <ColumnDefinition Width="230" />
                                                 <ColumnDefinition Width="55" />
                                                 <ColumnDefinition Width="180" />
-                                                <ColumnDefinition Width="45" />
+                                                <ColumnDefinition Width="120" />
                                             </Grid.ColumnDefinitions>
 
                                             <TextBlock Grid.Column="0" Text="{Binding Column1}" />
@@ -533,6 +539,30 @@
                                                     </Style>
                                                 </Button.Style>
                                             </Button>
+
+                                            <StackPanel
+                                                Grid.Column="4"
+                                                HorizontalAlignment="Center"
+                                                Orientation="Horizontal">
+                                                <StackPanel.Style>
+                                                    <Style TargetType="StackPanel">
+                                                        <Setter Property="Visibility" Value="Visible" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding CanEditBox}" Value="False">
+                                                                <Setter Property="Visibility" Value="Collapsed" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </StackPanel.Style>
+                                                <Button
+                                                    Width="52"
+                                                    Height="20"
+                                                    Padding="2,0"
+                                                    Command="{Binding DataContext.AddBoxBoardCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                    CommandParameter="{Binding}"
+                                                    Content="Додати"
+                                                    ToolTip="Додати плату в цю коробку" />
+                                            </StackPanel>
 
                                         </Grid>
 
