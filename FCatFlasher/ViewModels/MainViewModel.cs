@@ -335,6 +335,18 @@ namespace FCatFlasher.ViewModels
             }
         }
 
+        private bool _useNoAccelC0TestFirmware;
+        public bool UseNoAccelC0TestFirmware
+        {
+            get => _useNoAccelC0TestFirmware;
+            set
+            {
+                _useNoAccelC0TestFirmware = value;
+                OnPropertyChanged();
+                _testFirmwareService.UseNoAccelC0TestFirmware = value;
+            }
+        }
+
         private string _apiBaseUrl = "";
         public string ApiBaseUrl
         {

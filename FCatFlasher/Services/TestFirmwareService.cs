@@ -11,8 +11,9 @@ namespace FCatFlasher.Services
         private const string DefaultTestFirmwareDirectory = @"D:\";
         private const string G0TestFirmwareFileName = "test.hex";
         private const string C0TestFirmwareFileName = "c011_factory_test_02_03_2026.hex";
-        // private const string C0TestFirmwareFileName = "c011_factory_no_accel_plus_crc.hex";
+        private const string C0NoAccelTestFirmwareFileName = "c011_factory_no_accel_plus_crc.hex";
         public string TestFirmwareDirectory { get; set; } = DefaultTestFirmwareDirectory;
+        public bool UseNoAccelC0TestFirmware { get; set; }
 
 /// <summary>
 /// Автоматично визначає MCU і заливає відповідну тестову прошивку.
@@ -44,7 +45,9 @@ namespace FCatFlasher.Services
             if (unlockResult.DeviceType == "G0")
                 firmwarePath = GetTestFirmwarePath(G0TestFirmwareFileName);
             else if (unlockResult.DeviceType == "C0")
-                firmwarePath = GetTestFirmwarePath(C0TestFirmwareFileName);
+                firmwarePath = GetTestFirmwarePath(UseNoAccelC0TestFirmware
+                    ? C0NoAccelTestFirmwareFileName
+                    : C0TestFirmwareFileName);
             else
             {
                 output.AppendLine("ERROR: Unknown MCU");
@@ -85,7 +88,9 @@ namespace FCatFlasher.Services
             if (device == "G0")
                 firmwarePath = GetTestFirmwarePath(G0TestFirmwareFileName);
             else if (device == "C0")
-                firmwarePath = GetTestFirmwarePath(C0TestFirmwareFileName);
+                firmwarePath = GetTestFirmwarePath(UseNoAccelC0TestFirmware
+                    ? C0NoAccelTestFirmwareFileName
+                    : C0TestFirmwareFileName);
             else
             {
                 output.AppendLine("ERROR: Unknown MCU");

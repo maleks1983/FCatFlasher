@@ -558,6 +558,7 @@ namespace FCatFlasher.Services
                                 mode == UnderResetMode ? HardwareReset : SoftwareReset;
                             parameters.Shared = shared;
 
+                            
                             int result = NativeMethods.ConnectStLink(parameters);
                             output.Append($"{GetConnectModeName(mode)}/shared={shared}:{result}; ");
 
@@ -569,9 +570,13 @@ namespace FCatFlasher.Services
                                 return 0;
                             }
 
-                            // A failed native connection can leave a partial CubeProgrammer
-                            // session. Clean it before trying another mode.
+                            // CubeProgrammer_API may leave its native session in an
+                            // invalid state after a failed connect (notably -545).
+                            // Do not call connectStLink again in the same session:
+                            // a retry can escalate into AccessViolationException.
+                            attempts = output.ToString();
                             NativeMethods.Disconnect();
+                            return result;
                         }
                     }
                 }
