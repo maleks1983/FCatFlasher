@@ -153,6 +153,26 @@ namespace FCatFlasher.Services
                     created_at_ticks INTEGER NOT NULL,
                     is_synced INTEGER NOT NULL DEFAULT 0
                 );
+
+                CREATE TABLE IF NOT EXISTS diagnostic_reports (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    code TEXT NOT NULL DEFAULT '',
+                    ser TEXT NOT NULL DEFAULT '',
+                    out_io TEXT NOT NULL DEFAULT '',
+                    out_hs TEXT NOT NULL DEFAULT '',
+                    out_ls TEXT NOT NULL DEFAULT '',
+                    adc TEXT NOT NULL DEFAULT '',
+                    bat TEXT NOT NULL DEFAULT '',
+                    led_act TEXT NOT NULL DEFAULT '',
+                    led_sta TEXT NOT NULL DEFAULT '',
+                    led_err TEXT NOT NULL DEFAULT '',
+                    acc TEXT NOT NULL DEFAULT '',
+                    buz TEXT NOT NULL DEFAULT '',
+                    sig TEXT NOT NULL DEFAULT '',
+                    full_pack TEXT NOT NULL DEFAULT '',
+                    errors TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL
+                );
                 """;
 
             command.ExecuteNonQuery();
@@ -173,6 +193,39 @@ namespace FCatFlasher.Services
             EnsureColumn(connection, "pending_box_reports", "revision", "INTEGER NOT NULL DEFAULT 1");
             EnsureColumn(connection, "pending_rework_registrations", "revision", "INTEGER NOT NULL DEFAULT 1");
             EnsureUniquePendingReworkSerials(connection);
+        }
+
+        public void SaveDiagnosticReport(string code, string report, bool passed)
+        {
+            var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string line in report.Split('\n'))
+            {
+                int separator = line.IndexOf(':');
+                if (separator <= 0)
+                    continue;
+
+                values[line[..separator].Trim()] = line[(separator + 1)..].Trim();
+            }
+
+            using var connection = OpenConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText =
+                """
+                INSERT INTO diagnostic_reports
+                    (code, ser, out_io, out_hs, out_ls, adc, bat, led_act, led_sta,
+                     led_err, acc, buz, sig, full_pack, errors, created_at)
+                VALUES
+                    ($code, $ser, $out_io, $out_hs, $out_ls, $adc, $bat, $led_act,
+                     $led_sta, $led_err, $acc, $buz, $sig, $full_pack, $errors, $created_at);
+                """;
+
+            command.Parameters.AddWithValue("$code", code);
+            foreach (string key in new[] { "ser", "out_io", "out_hs", "out_ls", "adc", "bat", "led_act", "led_sta", "led_err", "acc", "buz", "sig" })
+                command.Parameters.AddWithValue("$" + key, values.GetValueOrDefault(key, ""));
+            command.Parameters.AddWithValue("$full_pack", report);
+            command.Parameters.AddWithValue("$errors", passed ? "" : string.Join(", ", values.Where(pair => pair.Value.Contains("ERR", StringComparison.OrdinalIgnoreCase)).Select(pair => pair.Key)));
+            command.Parameters.AddWithValue("$created_at", DateTime.Now.ToString("O"));
+            command.ExecuteNonQuery();
         }
 
 /// <summary>

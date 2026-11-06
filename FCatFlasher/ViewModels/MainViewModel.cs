@@ -6,9 +6,14 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Globalization;
 using System.Runtime.CompilerServices;
+using System.Media;
 using System.Threading;
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Documents;
 using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Interop;
 
 namespace FCatFlasher.ViewModels
 {
@@ -27,6 +32,7 @@ namespace FCatFlasher.ViewModels
         private const int ReflashUartModeSwitchDelayMs = 400;
         private const int ReflashBoardDetectionPowerOffDelayMs = 50;
         private const int ReflashBoardDetectionStlinkDelayMs = 150;
+        private const int ReflashBoardPresenceSettleDelayMs = 500;
         private const string TestRegistrationType = "TEST";
         private const string ProductionRegistrationType = "PRODUCTION";
         private const string ReworkRegistrationType = "REWORK";
@@ -519,7 +525,7 @@ namespace FCatFlasher.ViewModels
             SerialService? serialService = null,
             Action<string, string>? showFirmwareErrorDialog = null)
         {
-            _showFirmwareErrorDialog = showFirmwareErrorDialog ?? ShowTestErrorDialog;
+            _showFirmwareErrorDialog = showFirmwareErrorDialog ?? MainViewModelHelpers.ShowTestErrorDialog;
             _firmwareService = firmwareService ?? new FirmwareService();
             _serial = serialService ?? new SerialService();
             _apiService = apiService;
@@ -548,7 +554,7 @@ namespace FCatFlasher.ViewModels
                 FlashAutoTestFirmwareWithRetry,
                 TestFirmwareFailed,
                 _stand.SendCommand,
-                ShowTestErrorDialog,
+MainViewModelHelpers.ShowTestErrorDialog,
                 RegisterDeviceInDatabase,
                 WaitBoardRemoved,
                 WaitBoardRemovedAfterError);
@@ -1052,6 +1058,7 @@ namespace FCatFlasher.ViewModels
 
             if (ComPorts.Count > 0 && string.IsNullOrWhiteSpace(SelectedComPort))
                 SelectedComPort = ComPorts[0];
+
         }
 
         private void BrowseFirmware()
@@ -1471,7 +1478,7 @@ namespace FCatFlasher.ViewModels
                     Log += result + "\n";
                     Log += "\n=== ТЕСТОВУ ПРОШИВКУ НЕ ЗАЛИТО ===\n";
                     Log += ">>> Заберіть плату зі стенда...\n";
-                    ShowTestErrorDialog("Помилка тестової прошивки", result);
+                    MainViewModelHelpers.ShowTestErrorDialog("Помилка тестової прошивки", result);
 
                     _cycleState = CycleState.WaitingRemove;
 
@@ -1690,6 +1697,16 @@ namespace FCatFlasher.ViewModels
         private async Task HandleDiagnosticsResult(bool passed)
         {
             RunToken.ThrowIfCancellationRequested();
+            if (!string.Equals(
+                    _diagnosticsParser.LastMcuSerial,
+                    "TEST",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                _localDatabaseService.SaveDiagnosticReport(
+                    _currentDeviceType,
+                    _diagnosticsParser.LastReport,
+                    passed);
+            }
             if (passed)
             {
                 Status = "Test OK";
@@ -1712,8 +1729,8 @@ namespace FCatFlasher.ViewModels
             Log += "=== ТЕСТ НЕ ПРОЙДЕНО ===\n";
             Log += $"SIG: {_diagnosticsParser.LastSig}\n";
             Log += ">>> Заберіть плату зі стенда...\n";
-            ShowTestErrorDialog("Помилка тесту",
-                $"SIG: {_diagnosticsParser.LastSig}\n\n{_diagnosticsParser.LastReport}");
+            MainViewModelHelpers.ShowTestErrorDialog("Помилка тесту",
+                _diagnosticsParser.LastReport);
             RunToken.ThrowIfCancellationRequested();
             if (_testOnlyMode)
             {
@@ -1876,20 +1893,6 @@ namespace FCatFlasher.ViewModels
 
             return true;
         }
-
-        private static void ShowTestErrorDialog(string title, string details)
-        {
-            string message = string.IsNullOrWhiteSpace(details)
-                ? "Тест завершився з помилкою."
-                : details.Trim();
-
-            MessageBox.Show(
-                message,
-                title,
-                MessageBoxButton.OK,
-                MessageBoxImage.Error);
-        }
-
 
         private async Task CycleBoardPowerWhileWaiting()
         {
@@ -2335,6 +2338,12 @@ namespace FCatFlasher.ViewModels
             while (_cycleState == CycleState.WaitingRemove)
             {
                 await _stand.SendCommand("POWER_ON", BoardInsertPowerOnDelayMs, enforceMinimumDelay: false);
+
+                // Після успішної перепрошивки STM32CubeProgrammer ще може завершувати
+                // попередню native-сесію, а MCU — виконувати RESET. Не підключаємося до
+                // ST-LINK одразу, інакше ConnectStLink інколи падає в native API.
+                if (_workMode == WorkMode.Reflash)
+                    await Task.Delay(ReflashBoardPresenceSettleDelayMs, RunToken);
 
                 bool boardPresent = await _firmwareService.CheckBoardPresence();
 

@@ -5,12 +5,22 @@
 /// </summary>
     internal class DiagnosticsParser
     {
+        private const int BatteryMinMv = 3000;
+        private const int BatteryMaxMv = 3400;
+        private const int RedLedMinMv = 1600;
+        private const int RedLedMaxMv = 2000;
+        private const int GreenLedMinMv = 1800;
+        private const int GreenLedMaxMv = 2600;
+        private const int YellowLedMinMv = 1800;
+        private const int YellowLedMaxMv = 2300;
+
         private bool _isReceiving;
         private string _report = string.Empty;
 
         public int LastSig { get; private set; }
         public string LastReport { get; private set; } = string.Empty;
         public string LastMcuSerial { get; private set; } = string.Empty;
+        public string LastInvalidField { get; private set; } = string.Empty;
 
 /// <summary>
 /// Очищає накопичений звіт і останні діагностичні значення.
@@ -22,6 +32,7 @@
             LastSig = 0;
             LastReport = string.Empty;
             LastMcuSerial = string.Empty;
+            LastInvalidField = string.Empty;
         }
 
 /// <summary>
@@ -43,8 +54,36 @@
                 return null;
 
             _isReceiving = false;
-            LastReport = _report.Trim();
+            LastReport = MarkInvalidMeasurements(_report);
             return IsDiagnosticsOk(_report);
+        }
+
+        private string MarkInvalidMeasurements(string report)
+        {
+            var values = ParseReportValues(report);
+            var result = new List<string>();
+
+            foreach (string line in report.Trim().Split('\n'))
+            {
+                string trimmed = line.TrimEnd('\r');
+                string key = trimmed.Split(':', 2)[0].Trim();
+
+                bool invalid = key switch
+                {
+                    "BAT" => !IsReportMillivoltsInRange(values, key, BatteryMinMv, BatteryMaxMv),
+                    "LED_ACT" => !IsReportMillivoltsInRange(values, key, RedLedMinMv, RedLedMaxMv),
+                    "LED_STA" => !IsReportMillivoltsInRange(values, key, GreenLedMinMv, GreenLedMaxMv),
+                    "LED_ERR" => !IsReportMillivoltsInRange(values, key, YellowLedMinMv, YellowLedMaxMv),
+                    _ => false
+                };
+
+                if (invalid && string.IsNullOrEmpty(LastInvalidField))
+                    LastInvalidField = key;
+
+                result.Add(invalid ? $"{trimmed} - ERR" : trimmed);
+            }
+
+            return string.Join('\n', result);
         }
 
 /// <summary>
@@ -64,7 +103,11 @@
                    IsReportOk(values, "OUT_LS") &&
                    IsReportOk(values, "ADC") &&
                    IsReportOk(values, "ACC") &&
-                   IsReportOk(values, "BUZ");
+                   IsReportOk(values, "BUZ") &&
+                   IsReportMillivoltsInRange(values, "BAT", BatteryMinMv, BatteryMaxMv) &&
+                   IsReportMillivoltsInRange(values, "LED_ACT", RedLedMinMv, RedLedMaxMv) &&
+                   IsReportMillivoltsInRange(values, "LED_STA", GreenLedMinMv, GreenLedMaxMv) &&
+                   IsReportMillivoltsInRange(values, "LED_ERR", YellowLedMinMv, YellowLedMaxMv);
         }
 
 /// <summary>
@@ -97,6 +140,16 @@
         {
             return values.TryGetValue(key, out string? value) &&
                    value.Equals("OK", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsReportMillivoltsInRange(
+            IReadOnlyDictionary<string, string> values,
+            string key,
+            int minimum,
+            int maximum)
+        {
+            int value = GetReportInt(values, key);
+            return value >= minimum && value <= maximum;
         }
 
 /// <summary>

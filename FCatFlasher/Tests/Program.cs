@@ -85,7 +85,8 @@ internal static class Program
     [
         "DIAGNOSTICS REPORT BEGIN", "SIG: 1", "SER: ABC123",
         "OUT_IO: OK", "OUT_HS: OK", "OUT_LS: OK", "ADC: OK",
-        "ACC: OK", "BUZ: OK", "DIAGNOSTICS REPORT END"
+        "ACC: OK", "BUZ: OK", "BAT: 3254", "LED_ACT: 1692",
+        "LED_STA: 1996", "LED_ERR: 2020", "DIAGNOSTICS REPORT END"
     ];
 
     private static Task TestDiagnostics()
