@@ -1125,25 +1125,6 @@ MainViewModelHelpers.ShowTestErrorDialog,
             }
         }
 
-        /// <summary>
-        /// Перевіряє, що серійний номер введено у форматі поточного режиму.
-        /// </summary>
-        private bool EnsureSerialEntered()
-        {
-            if (!string.IsNullOrWhiteSpace(ScannedSerial))
-                return true;
-
-            Status = "No serial";
-            Log += "ERROR: Serial number is empty\n";
-            MessageBox.Show(
-                "Введіть серійний номер плати.",
-                "Серійний номер",
-                MessageBoxButton.OK,
-                MessageBoxImage.Warning);
-
-            return false;
-        }
-
         private string GetCurrentBoardSerial()
         {
             string serial = !string.IsNullOrWhiteSpace(_currentBoardSerial)
@@ -1564,31 +1545,6 @@ MainViewModelHelpers.ShowTestErrorDialog,
             return await _firmwareService.GetDeviceType();
         }
 
-        private async Task<string> GetProductionDeviceType()
-        {
-            string cachedDeviceType = GetDeviceTypeFromMcuName(_firmwareService.LastMcuName);
-
-            if (IsKnownDeviceType(cachedDeviceType))
-            {
-                return cachedDeviceType;
-            }
-
-            return await GetDeviceTypeWithRetry("prepare production");
-        }
-
-        private static string GetDeviceTypeFromMcuName(string mcuName)
-        {
-            if (mcuName.Contains("STM32G03") ||
-                mcuName.Contains("STM32G04") ||
-                mcuName.Contains("STM32G0"))
-                return "G0";
-
-            if (mcuName.Contains("STM32C0"))
-                return "C0";
-
-            return "UNKNOWN";
-        }
-
         private static bool IsKnownDeviceType(string deviceType)
         {
             return deviceType is "G0" or "C0";
@@ -1596,16 +1552,8 @@ MainViewModelHelpers.ShowTestErrorDialog,
 
         private static bool TestFirmwareFailed(string result)
         {
-            return FlashResultFailed(result) ||
+            return FirmwareResult.IsFailure(result) ||
                    result.Contains("UNKNOWN", StringComparison.OrdinalIgnoreCase);
-        }
-
-        private static bool FlashResultFailed(string result)
-        {
-            return result.Contains("ERROR", StringComparison.OrdinalIgnoreCase) ||
-                   result.Contains("ExitCode", StringComparison.OrdinalIgnoreCase) ||
-                   result.Contains("timeout", StringComparison.OrdinalIgnoreCase) ||
-                   result.Contains("failed", StringComparison.OrdinalIgnoreCase);
         }
 
         private async Task<string> FlashProductionFirmwareWithRecovery(string firmwareToFlash)
@@ -1640,12 +1588,6 @@ MainViewModelHelpers.ShowTestErrorDialog,
                 deviceType => ValidateProductionFlashSessionDevice(deviceType, firmwareToFlash));
         }
 
-        private static bool ShouldRetryProductionFlashSession(
-            FirmwareService.ProductionFlashSessionResult result)
-        {
-            return !IsKnownDeviceType(result.DeviceType) ||
-                   IsRecoverableStlinkFlashFailure(result.Output);
-        }
         /// <summary>
         /// Перевіряє відповідність виробничої прошивки типу MCU перед записом.
         /// </summary>
@@ -2068,7 +2010,7 @@ MainViewModelHelpers.ShowTestErrorDialog,
 
                 _currentDeviceType = result.DeviceType;
 
-                if (FlashResultFailed(result.Output))
+                if (FirmwareResult.IsFailure(result.Output))
                 {
                     if (IsKnownDeviceType(result.DeviceType) &&
                         FirmwareCompatibility.Validate(result.DeviceType, FirmwarePath).Length > 0)
@@ -2150,7 +2092,7 @@ MainViewModelHelpers.ShowTestErrorDialog,
                 }
                 string result = await FlashProductionFirmwareWithRecovery(firmwareToFlash);
 
-                if (FlashResultFailed(result))
+                if (FirmwareResult.IsFailure(result))
                 {
                     Log += result + "\n";
                     Status = "Flash Error";
@@ -2756,7 +2698,7 @@ MainViewModelHelpers.ShowTestErrorDialog,
                 _localDatabaseService.SaveFlashedBoard(
                     _currentUser.Id, GetCurrentOrderIdForLocalRegistration(),
                     GetCurrentBoardSerial(), GetCurrentMcuId(), GetCurrentMcuName(),
-                    GetCurrentLocalFirmwareName(firmwarePath), GetCurrentRegistrationType(),
+                    GetCurrentFirmwareName(firmwarePath), GetCurrentRegistrationType(),
                     _reworkProductName, firmwarePath, boxState, completedBox);
             }
             catch (Exception ex)
@@ -2842,11 +2784,6 @@ MainViewModelHelpers.ShowTestErrorDialog,
                 : firmwareName;
         }
 
-        private string GetCurrentLocalFirmwareName(string firmwarePath)
-        {
-            return GetCurrentFirmwareName(firmwarePath);
-        }
-
         private string GetCurrentMcuId()
         {
             if (!string.IsNullOrWhiteSpace(_diagnosticsParser.LastMcuSerial))
@@ -2871,21 +2808,6 @@ MainViewModelHelpers.ShowTestErrorDialog,
                 "C0" => "STM32C0",
                 _ => _currentDeviceType
             };
-        }
-
-        private static string GetFileNameFromPath(string path)
-        {
-            if (string.IsNullOrWhiteSpace(path))
-                return string.Empty;
-
-            string trimmedPath = path.Trim();
-            int slashIndex = trimmedPath.LastIndexOf('/');
-            int backslashIndex = trimmedPath.LastIndexOf('\\');
-            int separatorIndex = Math.Max(slashIndex, backslashIndex);
-
-            return separatorIndex >= 0 && separatorIndex < trimmedPath.Length - 1
-                ? trimmedPath[(separatorIndex + 1)..]
-                : trimmedPath;
         }
 
         private void IncrementTodayCounter(string registrationType)

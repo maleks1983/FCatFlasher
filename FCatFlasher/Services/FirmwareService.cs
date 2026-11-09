@@ -282,9 +282,7 @@ namespace FCatFlasher.Services
 
         private static string GetDeviceTypeFromName(string deviceName)
         {
-            if (deviceName.Contains("STM32G03") ||
-                deviceName.Contains("STM32G04") ||
-                deviceName.Contains("STM32G0"))
+            if (deviceName.Contains("STM32G0"))
                 return "G0";
 
             if (deviceName.Contains("STM32C0"))

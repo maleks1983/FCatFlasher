@@ -49,12 +49,9 @@
                  Text="{Binding ApiBaseUrl, UpdateSourceTrigger=PropertyChanged}"/>
 
         <TextBlock Foreground="Gray"
-                   Text="Зміна API URL застосовується після перезапуску."/>
-
+                   Text="Зміна API URL застосовується після перезапуску." Height="89"/>
         <Button Content="OK"
-                Width="90"
-                Margin="0,12,0,0"
-                IsCancel="True"/>
+                Width="96" RenderTransformOrigin="0.564,4.984" IsCancel="True" Height="29"/>
 
     </StackPanel>
 

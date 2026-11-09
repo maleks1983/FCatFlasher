@@ -1,6 +1,8 @@
 ﻿using System.IO;
 using System.Text;
 
+using FCatFlasher.Helpers;
+
 namespace FCatFlasher.Services
 {
 /// <summary>
@@ -37,7 +39,7 @@ namespace FCatFlasher.Services
 
             output.AppendLine(unlockResult.Output);
 
-            if (FlashResultFailed(unlockResult.Output))
+            if (FirmwareResult.IsFailure(unlockResult.Output))
                 return (unlockResult.DeviceType, output.ToString());
 
             string firmwarePath;
@@ -78,7 +80,7 @@ namespace FCatFlasher.Services
             string unlockResult = await firmwareService.UnlockRdp();
             output.AppendLine(unlockResult);
 
-            if (FlashResultFailed(unlockResult))
+            if (FirmwareResult.IsFailure(unlockResult))
                 return output.ToString();
 
             output.AppendLine($"MCU: {device}");
@@ -108,17 +110,6 @@ namespace FCatFlasher.Services
             output.AppendLine(await firmwareService.WriteFirmware(firmwarePath, resetAfterWrite: true));
 
             return output.ToString();
-        }
-
-/// <summary>
-/// Визначає помилку прошивки за текстовим результатом API.
-/// </summary>
-        private static bool FlashResultFailed(string result)
-        {
-            return result.Contains("ERROR", StringComparison.OrdinalIgnoreCase) ||
-                   result.Contains("ExitCode", StringComparison.OrdinalIgnoreCase) ||
-                   result.Contains("timeout", StringComparison.OrdinalIgnoreCase) ||
-                   result.Contains("failed", StringComparison.OrdinalIgnoreCase);
         }
 
 /// <summary>
