@@ -135,5 +135,7 @@ namespace FCatFlasher
 
             vm.SetFooterMode(tab.Header?.ToString());
         }
+
+       
     }
 }

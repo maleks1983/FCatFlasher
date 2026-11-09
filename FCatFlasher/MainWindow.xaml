@@ -5,8 +5,8 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     Title="FCatFlasher"
-    Width="950"
-    Height="700"
+    Width="953"
+    Height="729"
     mc:Ignorable="d">
 
     <DockPanel>
@@ -48,38 +48,31 @@
                 SelectionChanged="TabControl_SelectionChanged">
 
                 <TabItem Header="Тестова прошивка">
-                    <StackPanel Margin="10">
+                    <Grid Height="227" Margin="10">
 
-                        <TextBlock Margin="0,0,0,15" Text="Заливає тестову прошивку автоматично залежно від MCU" />
+                        <TextBlock Margin="0,0,0,211" Text="Заливає тестову прошивку автоматично залежно від MCU" />
+                        <Viewbox HorizontalAlignment="Left" Margin="100,44,0,76" Stretch="Fill" Width="475">
+                            <Grid Height="107" Width="475" HorizontalAlignment="Center" Margin="100,0,0,0">
+                                <Button
+                                    Width="200"
+                                    Command="{Binding TestFirmwareCommand}"
+                                    Content="Залити тестову прошивку" HorizontalAlignment="Left" Margin="0,0,0,72" />
+                                <Button
+                                    Width="200"
+                                    Command="{Binding TestOnlyCommand}"
+                                    Content="Тестування" HorizontalAlignment="Left" Margin="0,72,0,0" />
+                                <Button
+                                    Width="200"
+                                    Command="{Binding TestReplacementCommand}"
+                                    Content="Заміна плати" HorizontalAlignment="Left" Margin="275,0,0,72" />
+                                <Button
+                                    Command="{Binding StopCommand}"
+                                    Content="Стоп" Margin="275,72,0,0" Width="200" HorizontalAlignment="Center" />
 
-                        <StackPanel Orientation="Horizontal">
-                            <Button
-                                Width="200"
-                                Height="35"
-                                Margin="0,0,10,0"
-                                Command="{Binding TestFirmwareCommand}"
-                                Content="Залити тестову прошивку" />
+                            </Grid>
+                        </Viewbox>
 
-                            <Button
-                                Width="120"
-                                Height="35"
-                                Margin="0,0,10,0"
-                                Command="{Binding TestOnlyCommand}"
-                                Content="Тестування" />
-                            <Button
-                                Width="145"
-                                Height="35"
-                                Margin="0,0,10,0"
-                                Command="{Binding TestReplacementCommand}"
-                                Content="Заміна плати" />
-                            <Button
-                                Width="100"
-                                Height="35"
-                                Command="{Binding StopCommand}"
-                                Content="Стоп" />
-                        </StackPanel>
-
-                    </StackPanel>
+                    </Grid>
                 </TabItem>
 
                 <TabItem
@@ -207,77 +200,77 @@
 
                         <StackPanel>
 
-                        <TextBlock Margin="0,0,0,5" Text="Серійний номер" />
+                            <TextBlock Margin="0,0,0,5" Text="Серійний номер" />
 
-                        <TextBox
+                            <TextBox
                             x:Name="ReflashSerialTextBox"
                             Width="220"
                             Margin="0,0,0,10"
                             HorizontalAlignment="Left"
-                            FontSize="18"
+                            FontSize="25"
                             IsEnabled="{Binding IsSerialInputEnabled}"
                             Text="{Binding ScannedSerial, UpdateSourceTrigger=PropertyChanged}"
                             IsEnabledChanged="SerialTextBox_IsEnabledChanged"
                             TextChanged="SerialTextBox_TextChanged" />
 
-                        <TextBlock Margin="0,0,0,5" Text="Прошивка G0" />
+                            <TextBlock Margin="0,0,0,5" Text="Прошивка G0" />
 
-                        <StackPanel Margin="0,0,0,10" Orientation="Horizontal">
+                            <StackPanel Margin="0,0,0,10" Orientation="Horizontal">
 
-                            <TextBox
+                                <TextBox
                                 Width="446"
                                 Margin="0,0,10,0"
                                 IsReadOnly="True"
-                                Text="{Binding G0FirmwareFileName, Mode=OneWay}" />
+                                Text="{Binding G0FirmwareFileName, Mode=OneWay}" FontSize="14" />
 
-                            <Button
+                                <Button
                                 Width="100"
                                 Command="{Binding BrowseG0FirmwareCommand}"
                                 Content="Обрати" />
-                        </StackPanel>
+                            </StackPanel>
 
-                        <TextBlock Margin="0,0,0,5" Text="Прошивка C0" />
+                            <TextBlock Margin="0,0,0,5" Text="Прошивка C0" />
 
-                        <StackPanel Margin="0,0,0,10" Orientation="Horizontal">
+                            <StackPanel Margin="0,0,0,10" Orientation="Horizontal">
 
-                            <TextBox
+                                <TextBox
                                 Width="446"
                                 Margin="0,0,10,0"
                                 IsReadOnly="True"
-                                Text="{Binding C0FirmwareFileName, Mode=OneWay}" />
+                                Text="{Binding C0FirmwareFileName, Mode=OneWay}" FontSize="14" />
 
-                            <Button
+                                <Button
                                 Width="100"
                                 Command="{Binding BrowseC0FirmwareCommand}"
                                 Content="Обрати" />
-                        </StackPanel>
+                            </StackPanel>
 
-                        <CheckBox
+                            <CheckBox
                             Margin="0,0,0,10"
                             IsChecked="{Binding UseNoAccelC0TestFirmware, UpdateSourceTrigger=PropertyChanged}"
                             Content="Без аксельна прошивка" />
 
-                        <StackPanel Orientation="Horizontal">
-                            <Button
+                            <StackPanel Orientation="Horizontal">
+                                <Button
                                 Width="160"
                                 Height="35"
                                 Margin="0,0,10,0"
                                 Command="{Binding ReflashCommand}"
                                 Content="Перепрошити" />
 
-                            <Button
+                                <Button
                                 Width="190"
                                 Height="35"
                                 Margin="0,0,10,0"
                                 Command="{Binding ReflashTestFirmwareCommand}"
                                 Content="Тестова перепрошивка" />
 
-                            <Button
+                                <Button
                                 Width="100"
                                 Height="35"
                                 Command="{Binding StopCommand}"
-                                Content="Стоп" />
-                        </StackPanel>
+                                Content="Стоп" Margin="100,0,0,0" />
+                            </StackPanel>
 
                         </StackPanel>
 
@@ -361,8 +354,8 @@
             <Grid Grid.Row="1">
 
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="430" />
+                    <ColumnDefinition />
+                    <ColumnDefinition Width="487" />
                 </Grid.ColumnDefinitions>
 
                 <!--  Лог  -->
@@ -391,7 +384,7 @@
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" />
 
-                            </Grid.RowDefinitions>
+                        </Grid.RowDefinitions>
 
                         <!--  Заголовок  -->
                         <DockPanel
@@ -460,71 +453,71 @@
 
                             <StackPanel MinWidth="585">
 
-                            <TextBlock
+                                <TextBlock
                                 Margin="5,4,0,0"
                                 Foreground="Gray"
                                 Text="{Binding LocalDataEmptyText}"
                                 TextWrapping="Wrap">
-                                <TextBlock.Style>
-                                    <Style TargetType="TextBlock">
-                                        <Setter Property="Visibility" Value="Visible" />
-                                        <Style.Triggers>
-                                            <Trigger Property="Text" Value="">
-                                                <Setter Property="Visibility" Value="Collapsed" />
-                                            </Trigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </TextBlock.Style>
-                            </TextBlock>
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Visibility" Value="Visible" />
+                                            <Style.Triggers>
+                                                <Trigger Property="Text" Value="">
+                                                    <Setter Property="Visibility" Value="Collapsed" />
+                                                </Trigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
 
-                            <ItemsControl
+                                <ItemsControl
                                 AlternationCount="2"
                                 ItemsSource="{Binding LocalDataRows}">
 
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
 
-                                        <Grid Margin="0,1">
+                                            <Grid Margin="0,1">
 
-                                            <Grid.Style>
-                                                <Style TargetType="Grid">
-                                                    <Setter Property="Background" Value="White" />
-                                                    <Style.Triggers>
-                                                        <DataTrigger
+                                                <Grid.Style>
+                                                    <Style TargetType="Grid">
+                                                        <Setter Property="Background" Value="White" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger
                                                             Binding="{Binding RelativeSource={RelativeSource AncestorType=ContentPresenter}, Path=(ItemsControl.AlternationIndex)}"
                                                             Value="1">
-                                                            <Setter Property="Background" Value="#F0F0F0" />
-                                                        </DataTrigger>
-                                                    </Style.Triggers>
-                                                </Style>
-                                            </Grid.Style>
+                                                                <Setter Property="Background" Value="#F0F0F0" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Grid.Style>
 
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="75" />
-                                                <ColumnDefinition Width="230" />
-                                                <ColumnDefinition Width="55" />
-                                                <ColumnDefinition Width="180" />
-                                                <ColumnDefinition Width="120" />
-                                            </Grid.ColumnDefinitions>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="75" />
+                                                    <ColumnDefinition Width="230" />
+                                                    <ColumnDefinition Width="55" />
+                                                    <ColumnDefinition Width="180" />
+                                                    <ColumnDefinition Width="120" />
+                                                </Grid.ColumnDefinitions>
 
-                                            <TextBlock Grid.Column="0" Text="{Binding Column1}" />
+                                                <TextBlock Grid.Column="0" Text="{Binding Column1}" />
 
-                                            <TextBlock
+                                                <TextBlock
                                                 Grid.Column="1"
                                                 Text="{Binding Column2}"
                                                 TextWrapping="Wrap" />
 
-                                            <TextBlock
+                                                <TextBlock
                                                 Grid.Column="2"
                                                 Text="{Binding Column3}"
                                                 TextTrimming="CharacterEllipsis" />
 
-                                            <TextBlock
+                                                <TextBlock
                                                 Grid.Column="3"
                                                 Text="{Binding Column4}"
                                                 TextTrimming="CharacterEllipsis" />
 
-                                            <Button
+                                                <Button
                                                 Grid.Column="4"
                                                 Width="24"
                                                 Height="20"
@@ -533,33 +526,33 @@
                                                 Command="{Binding DataContext.DeleteLocalDataRowCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                 CommandParameter="{Binding}"
                                                 Content="X">
-                                                <Button.Style>
-                                                    <Style TargetType="Button">
-                                                        <Setter Property="Visibility" Value="Visible" />
-                                                        <Style.Triggers>
-                                                            <DataTrigger Binding="{Binding CanDelete}" Value="False">
-                                                                <Setter Property="Visibility" Value="Collapsed" />
-                                                            </DataTrigger>
-                                                        </Style.Triggers>
-                                                    </Style>
-                                                </Button.Style>
-                                            </Button>
+                                                    <Button.Style>
+                                                        <Style TargetType="Button">
+                                                            <Setter Property="Visibility" Value="Visible" />
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding CanDelete}" Value="False">
+                                                                    <Setter Property="Visibility" Value="Collapsed" />
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </Button.Style>
+                                                </Button>
 
-                                            <StackPanel
+                                                <StackPanel
                                                 Grid.Column="4"
                                                 HorizontalAlignment="Center"
                                                 Orientation="Horizontal">
-                                                <StackPanel.Style>
-                                                    <Style TargetType="StackPanel">
-                                                        <Setter Property="Visibility" Value="Visible" />
-                                                        <Style.Triggers>
-                                                            <DataTrigger Binding="{Binding CanEditBox}" Value="False">
-                                                                <Setter Property="Visibility" Value="Collapsed" />
-                                                            </DataTrigger>
-                                                        </Style.Triggers>
-                                                    </Style>
-                                                </StackPanel.Style>
-                                                <Button
+                                                    <StackPanel.Style>
+                                                        <Style TargetType="StackPanel">
+                                                            <Setter Property="Visibility" Value="Visible" />
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding CanEditBox}" Value="False">
+                                                                    <Setter Property="Visibility" Value="Collapsed" />
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </StackPanel.Style>
+                                                    <Button
                                                     Width="52"
                                                     Height="20"
                                                     Padding="2,0"
@@ -567,14 +560,14 @@
                                                     CommandParameter="{Binding}"
                                                     Content="Додати"
                                                     ToolTip="Додати плату в цю коробку" />
-                                            </StackPanel>
+                                                </StackPanel>
 
-                                        </Grid>
+                                            </Grid>
 
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
 
-                            </ItemsControl>
+                                </ItemsControl>
 
                             </StackPanel>
 
