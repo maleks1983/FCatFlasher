@@ -26,6 +26,7 @@ internal static class Program
             try
             {
                 await Test("diagnostics framing and duplicate END", TestDiagnostics);
+                await Test("FCAT2 diagnostics profile", TestFcat2Diagnostics);
                 await Test("firmware filename compatibility in both directions", TestCompatibility);
                 await Test("missing rework serial is counted for every board", TestMissingReworkSerialCounter);
                 await Test("missing rework serial creates separate database rows", TestMissingReworkSerialDatabaseRows);
@@ -98,6 +99,34 @@ internal static class Program
         Check(parser.ProcessLine(Report[^1]) == null, "Old report reused");
         parser.ProcessLine(Report[0]);
         Check(parser.ProcessLine(Report[^1]) == false, "Incomplete report accepted");
+        return Task.CompletedTask;
+    }
+
+    private static Task TestFcat2Diagnostics()
+    {
+        var parser = new DiagnosticsParser();
+        string[] report =
+        [
+            "DIAGNOSTICS REPORT BEGIN", "CRC: OK", "SER: fcat2-001",
+            "I2C_IO: OK", "ACC_IC: OK", "SW: OK", "BUZ: OK",
+            "OUT_HS: OK", "OUT_LS: OK", "OUT_TV: OK", "EXT: OK",
+            "BAT: 3250", "LED_R: 1700", "LED_G: 2000",
+            "LED_Y: 2050", "PWM: 1565", "DIAGNOSTICS REPORT END"
+        ];
+
+        foreach (string line in report[..^1])
+            Check(parser.ProcessLine(line) == null, "FCAT2 report completed too early");
+
+        Check(parser.ProcessLine(report[^1]) == true, "Valid FCAT2 report rejected");
+        Check(parser.LastMcuSerial == "FCAT2001", "FCAT2 MCU serial was not normalized");
+        Check(parser.LastSig == 1, "FCAT2 OK CRC was not accepted");
+
+        parser.Reset();
+        parser.BoardType = "FCAT2";
+        parser.ProcessLine("DIAGNOSTICS REPORT BEGIN");
+        Check(parser.ProcessLine("SER: fcat2-001") == null, "Invalid FCAT2 report completed early");
+        Check(parser.ProcessLine("DIAGNOSTICS REPORT END") == false, "Incomplete FCAT2 report accepted");
+        Check(parser.LastInvalidField == "CRC", "FCAT2 invalid field was not reported");
         return Task.CompletedTask;
     }
 
